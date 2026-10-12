@@ -6,7 +6,7 @@ set -e
 echo "📦 Packing TabFlow Agent for Publishing..."
 
 # 1. Clean old zips
-rm -f tabflow-extension.zip tabflow-source.zip
+rm -f tabflow-chrome.zip tabflow-firefox.zip tabflow-source.zip
 
 # 2. Build the extension
 echo "🔨 Building the extension..."
@@ -14,26 +14,28 @@ cd extension
 node build.mjs
 cd ..
 
+# Only runtime files go into store packages (no config.json with API keys, tests, build tooling or backups)
+RUNTIME_FILES="manifest.json admin.html palette.html icons src dist"
+
 # 3. Create Chrome ZIP
 echo "🗜️ Creating Chrome ZIP (tabflow-chrome.zip)..."
+STAGE=$(mktemp -d)
 cd extension
-cp manifest.json manifest.bak.json
-node -e "const fs = require('fs'); const m = JSON.parse(fs.readFileSync('manifest.json')); delete m.background.scripts; delete m.browser_specific_settings; fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2));"
-zip -r ../tabflow-chrome.zip . -x "node_modules/*" "*/node_modules/*" ".*" "*.zip" > /dev/null
+cp -r $RUNTIME_FILES "$STAGE"
+cd ..
+node -e "const fs = require('fs'); const f = process.argv[1]; const m = JSON.parse(fs.readFileSync(f)); delete m.background.scripts; delete m.browser_specific_settings; fs.writeFileSync(f, JSON.stringify(m, null, 2));" "$STAGE/manifest.json"
+(cd "$STAGE" && zip -qr - . -x ".*" "*/.*") > tabflow-chrome.zip
 
 # 4. Create Firefox ZIP
 echo "🗜️ Creating Firefox ZIP (tabflow-firefox.zip)..."
-cp manifest.bak.json manifest.json
-node -e "const fs = require('fs'); const m = JSON.parse(fs.readFileSync('manifest.json')); delete m.background.service_worker; m.background.scripts = ['dist/background.js']; fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2));"
-zip -r ../tabflow-firefox.zip . -x "node_modules/*" "*/node_modules/*" ".*" "*.zip" > /dev/null
-
-# Restore original manifest
-mv manifest.bak.json manifest.json
-cd ..
+cp extension/manifest.json "$STAGE/manifest.json"
+node -e "const fs = require('fs'); const f = process.argv[1]; const m = JSON.parse(fs.readFileSync(f)); delete m.background.service_worker; m.background.scripts = ['dist/background.js']; fs.writeFileSync(f, JSON.stringify(m, null, 2));" "$STAGE/manifest.json"
+(cd "$STAGE" && zip -qr - . -x ".*" "*/.*") > tabflow-firefox.zip
+rm -rf "$STAGE"
 
 # 5. Create the Source Code ZIP (Required by Firefox AMO)
 echo "🗜️ Creating Source Code ZIP (tabflow-source.zip)..."
-zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" > /dev/null
+zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" "*/config.json" "config.json" > /dev/null
 
 echo "✅ Done!"
 echo "➡️  tabflow-chrome.zip    : Upload this to the Chrome Web Store."

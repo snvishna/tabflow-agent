@@ -263,6 +263,9 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
     try {
         const targetUrlStr = details.url;
         const targetUrl = new URL(targetUrlStr);
+
+        // Only deduplicate real web pages; blank, new-tab and browser pages must never be closed
+        if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') return;
         
         // Load Settings to check for Reflex Engine
         const storage = await browserAPI.storage.local.get(['agentSettings']);

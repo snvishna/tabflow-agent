@@ -24,6 +24,11 @@ async function runBuild() {
     code = code.replace(/new Function\("return this"\)\(\)/g, 'globalThis');
     
     fs.writeFileSync(filePath, code);
+
+    // Bundle the single-threaded ONNX runtime binaries so nothing is fetched from a CDN
+    for (const wasm of ['ort-wasm.wasm', 'ort-wasm-simd.wasm']) {
+        fs.copyFileSync(`node_modules/@xenova/transformers/dist/${wasm}`, `dist/${wasm}`);
+    }
     console.log('Build completed and patched for MV3!');
 }
 

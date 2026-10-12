@@ -112,7 +112,8 @@ https://github.com/snvishna/tabflow-agent
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 1.0.0 | 2026-10-04 | Initial release featuring Reflex deduplication and Cognitive grouping. | Draft |
+| 1.0.0 | 2026-10-04 | Initial release featuring Reflex deduplication and Cognitive grouping. | Rejected (Yellow Magnesium) |
+| 1.0.1 | 2026-10-12 | Fixes install failure on Windows/Linux (invalid keyboard shortcut), stops blank/new-tab pages being closed as duplicates, bundles the local AI runtime instead of loading it from a CDN, and trims the package to runtime files only. | Draft |
 
 ## Review Notes
 
@@ -120,7 +121,7 @@ https://github.com/snvishna/tabflow-agent
 - None currently known.
 
 ### Rejection History
-- N/A
+- **2026-10-05, v1.0.0, Yellow Magnesium (Not providing promised functionality)**: the package failed automated installation testing on Linux. Cause: the `toggle-palette` command used `MacCtrl+Shift+Space` as its `default` shortcut; `MacCtrl` is only valid under the `mac` key, so Chrome refused to install the extension on Windows/Linux. Fixed in 1.0.1 (`default` is now `Ctrl+Shift+Space`). Also fixed: duplicate detection closed a second blank/new tab, the ONNX WASM runtime was fetched from cdn.jsdelivr.net (remote code), and the ZIP contained build tooling, tests and a manifest backup. The 1.0.1 package was verified by installing it in Chromium on Linux and running tab clustering end to end.
 
 ## Privacy Practices Justifications
 
@@ -138,7 +139,7 @@ When submitting to the Chrome Web Store, you will be prompted to provide justifi
 - **webNavigation**: "Used to detect when a user navigates to a new page so the extension can automatically categorize and move the new tab into its correct semantic group in real-time."
 
 ### Remote Code Use
-- **Remote Code Justification**: "This extension does not execute arbitrary remote code. However, it does transmit tab URLs and titles to a remote AI API endpoint (Google Gemini or OpenAI) using the user's explicitly provided API key (Bring Your Own Key architecture). No data is collected by the publisher."
+- **Remote Code Justification**: "This extension does not execute any remote code; its local AI runtime is bundled in the package. However, it does transmit tab URLs and titles to a remote AI API endpoint (Google Gemini or OpenAI) using the user's explicitly provided API key (Bring Your Own Key architecture). No data is collected by the publisher."
 
 ### Single Purpose Description
 - **Single Purpose Description**: "TabFlow Agent is an intelligent tab manager that uses AI to automatically categorize, group, and archive open browser tabs."
