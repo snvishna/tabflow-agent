@@ -45,3 +45,110 @@ export function fuzzyMatch(query, target) {
     
     return terms.every(term => searchTarget.includes(term));
 }
+
+/**
+ * True for http(s) URLs, the only pages the extension deduplicates, groups or archives.
+ */
+export function isWebUrl(urlString) {
+    try {
+        const { protocol } = new URL(urlString);
+        return protocol === 'http:' || protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Normalizes a URL for exact-duplicate comparison: drops the hash and a trailing slash.
+ */
+export function normalizeUrl(urlString) {
+    try {
+        const parsed = new URL(urlString);
+        return parsed.origin + parsed.pathname.replace(/\/$/, '') + parsed.search;
+    } catch (e) {
+        return urlString;
+    }
+}
+
+/**
+ * True when hostname is the domain itself or one of its subdomains.
+ * "mail.google.com" matches "google.com"; "notgoogle.com" does not.
+ */
+export function hostMatchesDomain(hostname, domain) {
+    if (!hostname || !domain) return false;
+    const h = hostname.toLowerCase();
+    const d = domain.toLowerCase().replace(/^\*?\./, '');
+    return h === d || h.endsWith('.' + d);
+}
+
+/**
+ * Ranks which tab of a duplicate set to keep: active, then pinned, then audible, then most recently used.
+ */
+function keepPriority(tab) {
+    return [tab.active ? 1 : 0, tab.pinned ? 1 : 0, tab.audible ? 1 : 0, tab.lastAccessed || 0];
+}
+
+function compareKeep(a, b) {
+    const pa = keepPriority(a), pb = keepPriority(b);
+    for (let i = 0; i < pa.length; i++) {
+        if (pa[i] !== pb[i]) return pb[i] - pa[i];
+    }
+    return 0;
+}
+
+/**
+ * Plans exact-duplicate closures. Tabs whose normalized URLs match are a duplicate set;
+ * one tab per set is kept (see keepPriority) and the rest are returned for closing.
+ * Pinned and audible tabs are never closed. Non-web URLs are ignored.
+ * @returns {{ toClose: object[], toKeep: object[] }}
+ */
+export function planExactDuplicates(tabs) {
+    const sets = new Map();
+    const toKeep = [];
+    for (const tab of tabs) {
+        if (!isWebUrl(tab.url)) { toKeep.push(tab); continue; }
+        const key = normalizeUrl(tab.url);
+        if (!sets.has(key)) sets.set(key, []);
+        sets.get(key).push(tab);
+    }
+    const toClose = [];
+    for (const set of sets.values()) {
+        set.sort(compareKeep);
+        toKeep.push(set[0]);
+        for (const tab of set.slice(1)) {
+            if (tab.pinned || tab.audible) toKeep.push(tab);
+            else toClose.push(tab);
+        }
+    }
+    return { toClose, toKeep };
+}
+
+/**
+ * Picks which tabs of a near-duplicate cluster to close: keeps the best tab (see keepPriority)
+ * and never closes pinned or audible tabs.
+ */
+export function planClusterClosures(clusterTabs) {
+    if (clusterTabs.length < 2) return [];
+    const sorted = [...clusterTabs].sort(compareKeep);
+    return sorted.slice(1).filter(t => !t.pinned && !t.audible);
+}
+
+/**
+ * Selects tabs to archive: web pages not used for more than `days` days that are
+ * not active, pinned or playing audio.
+ */
+export function selectStaleTabs(tabs, now, days) {
+    const threshold = days * 24 * 60 * 60 * 1000;
+    return tabs.filter(tab =>
+        !tab.active && !tab.pinned && !tab.audible &&
+        isWebUrl(tab.url) &&
+        tab.lastAccessed && (now - tab.lastAccessed > threshold)
+    );
+}
+
+/** Clamps the user's archive threshold to a whole number of days between 1 and 365. */
+export function sanitizeArchiveDays(value, fallback = 3) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 1) return fallback;
+    return Math.min(n, 365);
+}

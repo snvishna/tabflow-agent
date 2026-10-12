@@ -1,6 +1,8 @@
 import { clusterTabs, getSmartGroupName } from './clustering.js';
 import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, bulkImportArchivedTabs } from './db.js';
 import { PROMPTS } from './prompts.js';
+import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, sanitizeArchiveDays } from './utils.js';
+import { defaultsForKey } from './providers.js';
 
 // Unified browser API access
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
@@ -30,42 +32,39 @@ async function addLog(type, action, status, details) {
     await logMutex;
 }
 
+// Developer convenience: seeds API keys from an unpacked extension/config.json on install.
+// Store packages never include config.json, so this is a no-op for users.
 async function seedConfig() {
     try {
         const res = await fetch(browserAPI.runtime.getURL('config.json'));
-        if (res.ok) {
-            const config = await res.json();
-            const storage = await browserAPI.storage.local.get(['agentSettings']);
-            const s = storage.agentSettings || {};
-            // Only overwrite if UI settings are empty
-            if (!s.cognitiveKey) {
-                let defaultUrl = 'https://api.openai.com/v1/chat/completions';
-                let defaultModel = 'gpt-4o-mini';
-                if (config.cognitiveKey && config.cognitiveKey.startsWith('sk-ant-')) {
-                    defaultUrl = 'https://api.anthropic.com/v1/messages';
-                    defaultModel = 'claude-3-haiku-20240307';
-                } else if (config.cognitiveKey && (config.cognitiveKey.startsWith('AIza') || config.cognitiveKey.startsWith('AQ'))) {
-                    defaultUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-                    defaultModel = 'gemini-3.8-flash';
-                }
-                
-                const newSettings = {
-                    cognitiveKey: config.cognitiveKey || '',
-                    cognitiveUrl: config.cognitiveUrl || defaultUrl,
-                    cognitiveModel: config.cognitiveModel || defaultModel,
-                    reflexKey: config.reflexKey || config.cognitiveKey || '',
-                    reflexUrl: config.reflexUrl || config.cognitiveUrl || defaultUrl,
-                    reflexModel: config.reflexModel || config.cognitiveModel || defaultModel
-                };
-                await browserAPI.storage.local.set({ agentSettings: newSettings });
-                console.log("[Setup] Seeded API keys from config.json");
-            }
+        if (!res.ok) return;
+        const config = await res.json();
+        const storage = await browserAPI.storage.local.get(['agentSettings']);
+        const s = storage.agentSettings || {};
+        // Only overwrite if UI settings are empty
+        if (!s.cognitiveKey) {
+            const defaults = defaultsForKey(config.cognitiveKey);
+            const newSettings = {
+                ...s,
+                cognitiveKey: config.cognitiveKey || '',
+                cognitiveUrl: config.cognitiveUrl || defaults.url,
+                cognitiveModel: config.cognitiveModel || defaults.model,
+                reflexKey: config.reflexKey || config.cognitiveKey || '',
+                reflexUrl: config.reflexUrl || config.cognitiveUrl || defaults.url,
+                reflexModel: config.reflexModel || config.cognitiveModel || defaults.model
+            };
+            await browserAPI.storage.local.set({ agentSettings: newSettings });
+            console.log("[Setup] Seeded API keys from config.json");
         }
-    } catch(e) {}
+    } catch (e) { /* no config.json in store builds */ }
 }
 
-// Run once on load
-seedConfig();
+browserAPI.runtime.onInstalled.addListener(() => {
+    seedConfig();
+});
+
+// Abort slow AI calls so a new tab is never left waiting on the network
+const API_TIMEOUT_MS = 15000;
 
 async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
     let url = baseUrl;
@@ -98,7 +97,8 @@ async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(API_TIMEOUT_MS)
         });
 
         if (!response.ok) {
@@ -144,7 +144,8 @@ async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
                 'anthropic-version': '2023-06-01',
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(API_TIMEOUT_MS)
         });
 
         if (!response.ok) {
@@ -203,7 +204,8 @@ async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(API_TIMEOUT_MS)
         });
 
         if (!response.ok) {
@@ -244,16 +246,83 @@ if (browserAPI.action) {
 }
 
 // --- Smart Tab Reuse & Deduplication Router ---
-const singleInstanceDomains = ["localhost", "internal.corp.com"];
+// Domains where only one tab should exist; a new tab on them reuses the existing one.
+const singleInstanceDomains = ["localhost"];
 
 async function safeRemoveTab(tabId) {
     try { await browserAPI.tabs.remove(tabId); } catch (e) { /* ignore already closed */ }
 }
+
 async function safeUpdateTab(tabId, props) {
     try { await browserAPI.tabs.update(tabId, props); } catch (e) { /* ignore */ }
 }
+
 async function safeFocusWindow(windowId) {
     try { await browserAPI.windows.update(windowId, { focused: true }); } catch (e) { /* ignore */ }
+}
+
+// Duplicate detection only applies to *new* tabs: a tab is "fresh" from creation until its
+// first web page commits. Navigating inside an existing tab (links, form posts) is never touched.
+// Kept in session storage so it survives service worker restarts.
+const FRESH_TABS_KEY = 'freshTabs';
+let freshTabsMutex = Promise.resolve();
+
+function updateFreshTabs(mutator) {
+    freshTabsMutex = freshTabsMutex.then(async () => {
+        const res = await browserAPI.storage.session.get([FRESH_TABS_KEY]);
+        const fresh = res[FRESH_TABS_KEY] || {};
+        mutator(fresh);
+        await browserAPI.storage.session.set({ [FRESH_TABS_KEY]: fresh });
+    }).catch(e => console.error("Fresh tab tracking failed:", e));
+    return freshTabsMutex;
+}
+
+async function isFreshTab(tabId) {
+    await freshTabsMutex;
+    const res = await browserAPI.storage.session.get([FRESH_TABS_KEY]);
+    return Boolean((res[FRESH_TABS_KEY] || {})[tabId]);
+}
+
+// Tabs reopened by the browser's session restore at startup are not "new" tabs
+const STARTUP_GRACE_MS = 10000;
+
+browserAPI.runtime.onStartup.addListener(() => {
+    browserAPI.storage.session.set({ browserStartedAt: Date.now() });
+});
+
+browserAPI.tabs.onCreated.addListener(async (tab) => {
+    const { browserStartedAt } = await browserAPI.storage.session.get(['browserStartedAt']);
+    if (browserStartedAt && Date.now() - browserStartedAt < STARTUP_GRACE_MS) return;
+    updateFreshTabs(fresh => { fresh[tab.id] = Date.now(); });
+});
+
+browserAPI.tabs.onRemoved.addListener((tabId) => {
+    updateFreshTabs(fresh => { delete fresh[tabId]; });
+});
+
+browserAPI.webNavigation.onCommitted.addListener((details) => {
+    if (details.frameId !== 0 || !isWebUrl(details.url)) return;
+    updateFreshTabs(fresh => { delete fresh[details.tabId]; });
+});
+
+// Cache AI duplicate decisions so the same pair of pages never costs a second API call
+const REFLEX_CACHE_KEY = 'reflexCache';
+const REFLEX_CACHE_MAX = 200;
+
+async function getCachedReflexDecision(cacheKey) {
+    const res = await browserAPI.storage.session.get([REFLEX_CACHE_KEY]);
+    return (res[REFLEX_CACHE_KEY] || {})[cacheKey] || null;
+}
+
+async function cacheReflexDecision(cacheKey, decision) {
+    const res = await browserAPI.storage.session.get([REFLEX_CACHE_KEY]);
+    const cache = res[REFLEX_CACHE_KEY] || {};
+    cache[cacheKey] = decision;
+    const keys = Object.keys(cache);
+    if (keys.length > REFLEX_CACHE_MAX) {
+        for (const k of keys.slice(0, keys.length - REFLEX_CACHE_MAX)) delete cache[k];
+    }
+    await browserAPI.storage.session.set({ [REFLEX_CACHE_KEY]: cache });
 }
 
 browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
@@ -262,10 +331,12 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
     try {
         const targetUrlStr = details.url;
-        const targetUrl = new URL(targetUrlStr);
 
         // Only deduplicate real web pages; blank, new-tab and browser pages must never be closed
-        if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') return;
+        if (!isWebUrl(targetUrlStr)) return;
+        if (!(await isFreshTab(details.tabId))) return;
+
+        const targetUrl = new URL(targetUrlStr);
         
         // Load Settings to check for Reflex Engine
         const storage = await browserAPI.storage.local.get(['agentSettings']);
@@ -283,36 +354,36 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
         // We have tabs on the same domain. Sort to get the most recent one.
         hostMatches.sort((a,b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
-        const match = hostMatches[0];
 
         // 2. Exact Duplicate Prevention (always runs, free)
-        const normalizeUrl = (u) => {
-            try {
-                const parsed = new URL(u);
-                return parsed.origin + parsed.pathname.replace(/\/$/, '') + parsed.search;
-            } catch { return u; }
-        };
-
-        if (normalizeUrl(match.url) === normalizeUrl(targetUrlStr)) {
+        const exactMatch = hostMatches.find(tab => normalizeUrl(tab.url) === normalizeUrl(targetUrlStr));
+        if (exactMatch) {
             addLog('DECISION', 'Deduplication', 'success', `Exact duplicate found for ${targetUrlStr} (Local Engine | Match: 100%). Redirecting focus.`);
-            await safeUpdateTab(match.id, { active: true });
-            await safeFocusWindow(match.windowId);
+            await safeUpdateTab(exactMatch.id, { active: true });
+            await safeFocusWindow(exactMatch.windowId);
             await safeRemoveTab(details.tabId);
             return;
         }
+        const match = hostMatches[0];
 
         // 3. Reflex Engine Deduplication (if configured)
         if (s.reflexUrl && s.reflexKey && s.reflexModel) {
             const systemPrompt = PROMPTS.DEDUPLICATION_AGENT;
             const userPrompt = `EXISTING TAB URL: ${match.url}\nEXISTING TAB TITLE: ${match.title}\n\nTARGET NEW URL: ${targetUrlStr}`;
+            const cacheKey = `${normalizeUrl(match.url)}|${normalizeUrl(targetUrlStr)}`;
             
             try {
-                const decision = await callAgentAPI(s.reflexUrl, s.reflexKey, s.reflexModel, systemPrompt, userPrompt);
-                
-                const scoreText = decision.confidence ? ` | Confidence: ${(decision.confidence * 100).toFixed(1)}%` : '';
-                const engineText = decision.engine ? ` (${decision.engine}${scoreText})` : '';
-                
-                addLog('DECISION', 'Reflex Engine', 'success', `Decision: ${decision.action}${engineText} for target: ${targetUrlStr}`);
+                let decision = await getCachedReflexDecision(cacheKey);
+                if (decision) {
+                    addLog('DECISION', 'Reflex Engine', 'success', `Decision: ${decision.action} (cached) for target: ${targetUrlStr}`);
+                } else {
+                    decision = await callAgentAPI(s.reflexUrl, s.reflexKey, s.reflexModel, systemPrompt, userPrompt);
+                    await cacheReflexDecision(cacheKey, { action: decision.action, confidence: decision.confidence, engine: decision.engine });
+
+                    const scoreText = decision.confidence ? ` | Confidence: ${(decision.confidence * 100).toFixed(1)}%` : '';
+                    const engineText = decision.engine ? ` (${decision.engine}${scoreText})` : '';
+                    addLog('DECISION', 'Reflex Engine', 'success', `Decision: ${decision.action}${engineText} for target: ${targetUrlStr}`);
+                }
                 
                 if (decision.action === "REFRESH") {
                     await safeUpdateTab(match.id, { url: targetUrlStr, active: true });
@@ -327,7 +398,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
 
         // 4. Free Local Fallback (Single-Instance Domains)
-        const isSingleInstance = singleInstanceDomains.some(d => targetUrl.hostname.includes(d));
+        const isSingleInstance = singleInstanceDomains.some(d => hostMatchesDomain(targetUrl.hostname, d));
         if (isSingleInstance) {
             addLog('DECISION', 'Local Fallback', 'success', `Single-instance domain matched. Updating tab ${match.id} to new path: ${targetUrlStr}`);
             await safeUpdateTab(match.id, { url: targetUrlStr, active: true });
@@ -336,6 +407,49 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
     } catch (error) {
         console.error("Error processing navigation:", error);
+    }
+});
+
+// --- Stale Tab Archiving ---
+const AUTO_ARCHIVE_ALARM = 'auto-archive';
+
+async function getArchiveDays() {
+    const { agentSettings } = await browserAPI.storage.local.get(['agentSettings']);
+    return sanitizeArchiveDays((agentSettings || {}).archiveAfterDays);
+}
+
+/**
+ * Archives (saves to the local archive, then closes) tabs unused for longer than the
+ * user's threshold. Never touches the active, pinned or audible tabs.
+ * @param {object} query tabs.query filter, e.g. the current window
+ * @returns {Promise<number>} number of tabs archived
+ */
+async function archiveStaleTabs(query = {}) {
+    const days = await getArchiveDays();
+    const tabs = await browserAPI.tabs.query(query);
+    const stale = selectStaleTabs(tabs, Date.now(), days);
+    for (const tab of stale) {
+        await archiveTab(tab);
+        await safeRemoveTab(tab.id);
+    }
+    if (stale.length > 0) {
+        addLog('DECISION', 'Archive Stale Tabs', 'success', `Archived ${stale.length} tabs unused for more than ${days} days.`);
+    }
+    return stale.length;
+}
+
+async function syncAutoArchiveAlarm(settings) {
+    if (settings.autoArchive) {
+        const existing = await browserAPI.alarms.get(AUTO_ARCHIVE_ALARM);
+        if (!existing) await browserAPI.alarms.create(AUTO_ARCHIVE_ALARM, { periodInMinutes: 60 });
+    } else {
+        await browserAPI.alarms.clear(AUTO_ARCHIVE_ALARM);
+    }
+}
+
+browserAPI.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === AUTO_ARCHIVE_ALARM) {
+        archiveStaleTabs({}).catch(e => console.error("Auto-archive failed:", e));
     }
 });
 
@@ -454,9 +568,14 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.action === 'save_settings') {
-        browserAPI.storage.local.set({ agentSettings: message.settings }).then(() => {
+        browserAPI.storage.local.get(['agentSettings']).then(async (result) => {
+            // Merge so settings saved from one screen never wipe fields owned by another
+            const merged = { ...(result.agentSettings || {}), ...message.settings };
+            merged.archiveAfterDays = sanitizeArchiveDays(merged.archiveAfterDays);
+            await browserAPI.storage.local.set({ agentSettings: merged });
+            await syncAutoArchiveAlarm(merged);
             sendResponse({ status: 'success' });
-        });
+        }).catch(error => sendResponse({ status: 'error', error: error.message }));
         return true;
     }
     
@@ -474,54 +593,32 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     if (message.action === 'deduplicate_tabs') {
         browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT }).then(async tabs => {
-            const tabsByUrl = {};
-            const tabsToClose = [];
-            const tabsToKeep = [];
+            // 1. Exact URL duplicates (ignores #fragments and trailing slashes)
+            const { toClose: exactDupes, toKeep } = planExactDuplicates(tabs);
 
-            // 1. Exact URL deduplication
-            for (const tab of tabs) {
-                if (tabsByUrl[tab.url]) {
-                    tabsToClose.push(tab.id); // It's an exact duplicate
-                } else {
-                    tabsByUrl[tab.url] = tab;
-                    tabsToKeep.push(tab);
-                }
-            }
+            // 2. Near-identical pages (same article with different tracking params, etc.).
+            // The same-site bonus is disabled here: two different pages on one site are not duplicates.
+            const webTabs = toKeep.filter(t => isWebUrl(t.url));
+            const clusters = await clusterTabs(webTabs, 0.95, { domainBonus: 0 });
+            const nearDupes = clusters.flatMap(cluster => planClusterClosures(cluster.tabs));
 
-            // Close exact duplicates immediately
-            if (tabsToClose.length > 0) {
-                await browserAPI.tabs.remove(tabsToClose);
-            }
+            // Archive before closing so every closed tab can be restored from the palette
+            const toClose = [...exactDupes, ...nearDupes];
+            for (const tab of toClose) await archiveTab(tab);
+            if (toClose.length > 0) await browserAPI.tabs.remove(toClose.map(t => t.id));
 
-            // 2. AI semantic deduplication for the remaining tabs
-            // Using a very high threshold (0.95) to ensure solid AI judgement on redundant tabs
-            const clusters = await clusterTabs(tabsToKeep, 0.95);
-            const semanticDupesToClose = [];
-            
-            for (const cluster of clusters) {
-                if (cluster.tabs.length > 1) {
-                    // Sort by lastAccessed descending
-                    cluster.tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
-                    // Keep the first (most recently used), close the rest
-                    for (let i = 1; i < cluster.tabs.length; i++) {
-                        semanticDupesToClose.push(cluster.tabs[i].id);
-                    }
-                }
-            }
-
-            if (semanticDupesToClose.length > 0) {
-                await browserAPI.tabs.remove(semanticDupesToClose);
-            }
-
+            addLog('DECISION', 'Deduplicate Tabs', 'success', `Closed ${exactDupes.length} exact and ${nearDupes.length} near-identical duplicates (archived).`);
             sendResponse({ 
                 status: 'success', 
-                exactClosed: tabsToClose.length, 
-                semanticClosed: semanticDupesToClose.length 
+                exactClosed: exactDupes.length, 
+                semanticClosed: nearDupes.length 
             });
+        }).catch(error => {
+            console.error("Deduplication failed:", error);
+            sendResponse({ status: 'error', error: error.message });
         });
         return true;
     }
-    
     if (message.action === 'ungroup_all') {
         browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT }).then(async tabs => {
             const groupedTabs = tabs.filter(t => t.groupId !== -1 && t.groupId !== undefined).map(t => t.id);
@@ -597,24 +694,11 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.action === 'archive_stale_tabs') {
-        browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT, active: false }).then(async tabs => {
-            let archivedCount = 0;
-            const now = Date.now();
-            const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
-            
-            for (const tab of tabs) {
-                // Safely check if tab has been inactive for more than 3 days
-                if (!tab.pinned && !tab.audible && tab.lastAccessed && (now - tab.lastAccessed > THREE_DAYS)) {
-                    await archiveTab(tab);
-                    await browserAPI.tabs.remove(tab.id);
-                    archivedCount++;
-                }
-            }
-            sendResponse({ status: 'success', archivedCount });
-        });
+        archiveStaleTabs({ windowId: browserAPI.windows.WINDOW_ID_CURRENT })
+            .then(archivedCount => sendResponse({ status: 'success', archivedCount }))
+            .catch(error => sendResponse({ status: 'error', error: error.message }));
         return true;
     }
-
     if (message.action === 'get_archived_tabs') {
         Promise.all([
             getArchivedTabs(),
@@ -731,18 +815,6 @@ async function applyClustersToTabs(clusters) {
         } catch(e) { console.error(e); }
     }
 }
-
-// --- Debugging Helper ---
-// Expose function globally so you can test it directly in the background console
-globalThis.testCluster = async () => {
-    const tabs = await browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT });
-    const clusters = await clusterTabs(tabs);
-    console.log("Clusters generated:", clusters);
-    
-    await applyClustersToTabs(clusters);
-    
-    return clusters;
-};
 
 // --- Backup Listeners ---
 browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {

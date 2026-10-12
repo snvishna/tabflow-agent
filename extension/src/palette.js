@@ -1,3 +1,5 @@
+import { defaultsForKey, modelMatchesKey, isDefaultModel } from './providers.js';
+
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
 
 const input = document.getElementById('search-input');
@@ -14,6 +16,7 @@ const commands = [
     { type: 'command', title: "Organize Ungrouped Tabs", action: "cmd_group_tabs_leaf", icon: "🌱", section: "Commands" },
     { type: 'command', title: "Ungroup All Tabs", action: "cmd_ungroup_all", icon: "💥", section: "Commands" },
     { type: 'command', title: "Consolidate All Windows", action: "cmd_consolidate", icon: "🗂️", section: "Commands" },
+    { type: 'command', title: "Close Duplicate Tabs", action: "cmd_dedupe", icon: "🧹", section: "Commands" },
     { type: 'command', title: "Archive Unused Tabs (> 3 Days)", action: "cmd_archive", icon: "📦", section: "Commands" },
     { type: 'command', title: "Recover Last Archived", action: "cmd_recover", icon: "♻️", section: "Commands" },
     { type: 'command', title: "Export Backup (Tabs & Archives)", action: "cmd_export_backup", icon: "💾", section: "Backup & Restore" },
@@ -22,6 +25,17 @@ const commands = [
 
 // Initialize
 input.focus();
+
+// Show the user's archive threshold in the command title
+async function refreshArchiveCommandTitle() {
+    try {
+        const s = await browserAPI.runtime.sendMessage({ action: 'get_settings' });
+        const days = s && s.archiveAfterDays ? s.archiveAfterDays : 3;
+        const cmd = commands.find(c => c.action === 'cmd_archive');
+        cmd.title = `Archive Unused Tabs (> ${days} Day${days === 1 ? '' : 's'})`;
+    } catch (e) { /* keep default title */ }
+}
+refreshArchiveCommandTitle();
 
 // Fetch tabs
 async function loadTabs() {
@@ -200,6 +214,8 @@ function executeItem(item) {
             promise = browserAPI.runtime.sendMessage({ action: 'ungroup_all' });
         } else if (item.action === 'cmd_consolidate') {
             promise = browserAPI.runtime.sendMessage({ action: 'consolidate_windows' });
+        } else if (item.action === 'cmd_dedupe') {
+            promise = browserAPI.runtime.sendMessage({ action: 'deduplicate_tabs' });
         } else if (item.action === 'cmd_archive') {
             promise = browserAPI.runtime.sendMessage({ action: 'archive_stale_tabs' });
         } else if (item.action === 'cmd_recover') {
@@ -380,7 +396,10 @@ document.getElementById('settings-trigger').addEventListener('click', () => {
         if (s.reflexUrl && s.reflexUrl !== s.cognitiveUrl) useAdvanced = true;
         if (s.reflexModel && s.reflexModel !== s.cognitiveModel) useAdvanced = true;
         if (s.cognitiveUrl && !s.cognitiveUrl.includes('api.anthropic.com') && !s.cognitiveUrl.includes('api.openai.com') && !s.cognitiveUrl.includes('generativelanguage.googleapis.com') && s.cognitiveUrl !== '') useAdvanced = true;
-        if (s.cognitiveModel && !['claude-3-haiku-20240307', 'claude-3-5-haiku-latest', 'gpt-4o-mini', 'gemini-1.5-flash'].includes(s.cognitiveModel)) useAdvanced = true;
+        if (s.cognitiveModel && !isDefaultModel(s.cognitiveModel)) useAdvanced = true;
+
+        document.getElementById('setting-archive-days').value = s.archiveAfterDays || 3;
+        document.getElementById('setting-auto-archive').checked = Boolean(s.autoArchive);
         
         document.getElementById('advanced-toggle').checked = useAdvanced;
         document.getElementById('advanced-settings').style.display = useAdvanced ? 'block' : 'none';
@@ -393,19 +412,12 @@ document.getElementById('advanced-toggle').addEventListener('change', (e) => {
 
 function autoPopulateFields(key, urlInput, modelInput) {
     if (!key) return;
-    if (key.startsWith('sk-ant-')) {
-        if (!urlInput.value || !urlInput.value.includes('api.anthropic.com')) urlInput.value = 'https://api.anthropic.com/v1/messages';
-        if (!modelInput.value || !modelInput.value.startsWith('claude')) modelInput.value = 'claude-3-haiku-20240307';
-    } else if (key.startsWith('AIza') || key.startsWith('AQ')) {
-        if (!urlInput.value || !urlInput.value.includes('generativelanguage.googleapis.com')) urlInput.value = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-        if (!modelInput.value || !modelInput.value.startsWith('gemini')) modelInput.value = 'gemini-3.8-flash';
-    } else if (key.startsWith('ts-') || key.startsWith('jev-')) {
-        if (!urlInput.value || !urlInput.value.includes('api.typesafe.ai')) urlInput.value = 'https://api.typesafe.ai/v1/systemone';
-        if (!modelInput.value || !modelInput.value.startsWith('jev')) modelInput.value = 'jev-latest';
-    } else if (key.startsWith('sk-') && !key.startsWith('sk-ant-')) {
-        if (!urlInput.value || !urlInput.value.includes('api.openai.com')) urlInput.value = 'https://api.openai.com/v1/chat/completions';
-        if (!modelInput.value || (!modelInput.value.startsWith('gpt') && !modelInput.value.startsWith('o1'))) modelInput.value = 'gpt-4o-mini';
-    }
+    const defaults = defaultsForKey(key);
+    if (!defaults.url) return;
+    // Keep a user's URL/model when it already belongs to the key's provider
+    const urlHost = new URL(defaults.url).hostname;
+    if (!urlInput.value || !urlInput.value.includes(urlHost)) urlInput.value = defaults.url;
+    if (!modelInput.value || !modelMatchesKey(key, modelInput.value)) modelInput.value = defaults.model;
 }
 
 document.getElementById('setting-main-key').addEventListener('input', (e) => {
@@ -450,26 +462,14 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
     
     let s = {};
     if (!useAdvanced) {
-        let defaultUrl = '';
-        let defaultModel = '';
-        if (mainKey.startsWith('sk-ant-')) {
-            defaultUrl = 'https://api.anthropic.com/v1/messages';
-            defaultModel = 'claude-3-haiku-20240307';
-        } else if (mainKey.startsWith('AIza') || mainKey.startsWith('AQ')) {
-            defaultUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-            defaultModel = 'gemini-3.8-flash';
-        } else if (mainKey.startsWith('sk-')) {
-            defaultUrl = 'https://api.openai.com/v1/chat/completions';
-            defaultModel = 'gpt-4o-mini';
-        }
-
+        const defaults = defaultsForKey(mainKey);
         s = {
             cognitiveKey: mainKey,
-            cognitiveUrl: defaultUrl,
-            cognitiveModel: defaultModel,
+            cognitiveUrl: defaults.url,
+            cognitiveModel: defaults.model,
             reflexKey: mainKey,
-            reflexUrl: defaultUrl,
-            reflexModel: defaultModel
+            reflexUrl: defaults.url,
+            reflexModel: defaults.model
         };
     } else {
         s = {
@@ -481,9 +481,12 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
             reflexModel: document.getElementById('setting-reflex-model').value.trim()
         };
     }
+    s.archiveAfterDays = Number(document.getElementById('setting-archive-days').value);
+    s.autoArchive = document.getElementById('setting-auto-archive').checked;
     
     browserAPI.runtime.sendMessage({ action: 'save_settings', settings: s }).then(() => {
         btn.textContent = "Saved ✓";
+        refreshArchiveCommandTitle();
         setTimeout(() => {
             btn.textContent = originalText;
             document.getElementById('btn-cancel-settings').click();
