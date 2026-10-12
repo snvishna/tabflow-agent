@@ -35,7 +35,7 @@ rm -rf "$STAGE"
 
 # 5. Create the Source Code ZIP (Required by Firefox AMO)
 echo "🗜️ Creating Source Code ZIP (tabflow-source.zip)..."
-zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" "*/config.json" "config.json" > /dev/null
+zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" "*/config.json" "config.json" "store-assets/*" > /dev/null
 
 echo "✅ Done!"
 echo "➡️  tabflow-chrome.zip    : Upload this to the Chrome Web Store."

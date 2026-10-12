@@ -27,6 +27,7 @@
         border: 'none',
         zIndex: '2147483647',
         background: 'transparent',
+        colorScheme: 'normal', // must match palette.html's root so the overlay stays transparent
         display: 'block'
     });
 

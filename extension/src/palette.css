@@ -1,3 +1,9 @@
+/* The palette runs in a transparent iframe over web pages. Browsers paint an opaque backdrop
+   when the iframe's color scheme differs from the iframe element's (set to normal in content.js),
+   so the root stays "normal" and light/dark applies to the panel itself. */
+:root { color-scheme: normal; }
+#palette-container { color-scheme: light dark; }
+
 body {
     margin: 0;
     padding: 15vh 16px 0;
