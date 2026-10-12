@@ -152,3 +152,55 @@ export function sanitizeArchiveDays(value, fallback = 3) {
     if (!Number.isFinite(n) || n < 1) return fallback;
     return Math.min(n, 365);
 }
+
+/**
+ * Parses a user-entered list of sites (one per line or comma separated) into clean domains.
+ * Accepts "https://www.github.com/foo", "*.google.com", "localhost:3000" and drops junk.
+ * @returns {string[]} unique lower-case domains
+ */
+export function parseDomainList(text) {
+    if (!text) return [];
+    const domains = String(text).split(/[\s,]+/).map(entry => {
+        let d = entry.trim().toLowerCase();
+        if (!d) return '';
+        d = d.replace(/^[a-z]+:\/\//, '').replace(/^\*\./, '').replace(/^www\./, '');
+        d = d.split(/[/?#]/)[0].split(':')[0];
+        return /^[a-z0-9.-]+$/.test(d) && !d.startsWith('.') && !d.endsWith('.') ? d : '';
+    }).filter(Boolean);
+    return [...new Set(domains)];
+}
+
+/** True when the URL's host is one of the domains (or their subdomains). */
+export function urlMatchesDomains(urlString, domains) {
+    if (!domains || domains.length === 0) return false;
+    try {
+        const { hostname } = new URL(urlString);
+        return domains.some(d => hostMatchesDomain(hostname, d));
+    } catch (e) {
+        return false;
+    }
+}
+
+/** Defaults for the non-AI settings. */
+export const SETTING_DEFAULTS = {
+    archiveAfterDays: 3,
+    autoArchive: false,
+    autoGroup: true,
+    neverClose: [],
+    singleInstance: ['localhost']
+};
+
+/**
+ * Fills in defaults and cleans user-entered values (day range, domain lists).
+ * Domain lists may be stored as arrays or as raw text.
+ */
+export function withSettingDefaults(stored = {}) {
+    const s = { ...SETTING_DEFAULTS, ...(stored || {}) };
+    const toList = v => parseDomainList(Array.isArray(v) ? v.join('\n') : v);
+    s.archiveAfterDays = sanitizeArchiveDays(s.archiveAfterDays);
+    s.autoArchive = Boolean(s.autoArchive);
+    s.autoGroup = s.autoGroup !== false;
+    s.neverClose = toList(s.neverClose);
+    s.singleInstance = toList(s.singleInstance);
+    return s;
+}

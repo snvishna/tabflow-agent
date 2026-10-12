@@ -35,7 +35,7 @@ async function getEmbedder() {
 /**
  * Embeds a string to a mathematical vector.
  */
-async function embedText(text) {
+export async function embedText(text) {
     const extractor = await getEmbedder();
     const output = await extractor(text, { pooling: 'mean', normalize: true });
     return output.data; // Float32Array of embeddings

@@ -118,3 +118,61 @@ describe('providers', () => {
         expect(isDefaultModel('my-custom-model')).toBe(false);
     });
 });
+
+import { parseDomainList, urlMatchesDomains, withSettingDefaults } from '../src/utils.js';
+import { pickGroupForTab } from '../src/autogroup.js';
+
+describe('parseDomainList', () => {
+    it('cleans URLs, wildcards, ports and duplicates', () => {
+        expect(parseDomainList('https://www.GitHub.com/foo\n*.google.com, localhost:3000\n\nexample.com example.com')).toEqual(['github.com', 'google.com', 'localhost', 'example.com']);
+    });
+    it('drops junk', () => {
+        expect(parseDomainList('not a domain!\n.bad\nbad.')).toEqual(['not', 'a']);
+        expect(parseDomainList('')).toEqual([]);
+        expect(parseDomainList(undefined)).toEqual([]);
+    });
+});
+
+describe('urlMatchesDomains', () => {
+    it('matches subdomains and ignores non-web URLs', () => {
+        expect(urlMatchesDomains('https://mail.google.com/x', ['google.com'])).toBe(true);
+        expect(urlMatchesDomains('https://example.com', ['google.com'])).toBe(false);
+        expect(urlMatchesDomains('not a url', ['google.com'])).toBe(false);
+        expect(urlMatchesDomains('https://google.com', [])).toBe(false);
+    });
+});
+
+describe('withSettingDefaults', () => {
+    it('fills defaults', () => {
+        const s = withSettingDefaults(undefined);
+        expect(s).toMatchObject({ archiveAfterDays: 3, autoArchive: false, autoGroup: true, neverClose: [], singleInstance: ['localhost'] });
+    });
+    it('keeps AI settings and cleans lists given as text', () => {
+        const s = withSettingDefaults({ cognitiveKey: 'k', neverClose: 'https://mail.google.com/\nfoo.com', singleInstance: [], autoGroup: false, archiveAfterDays: '0' });
+        expect(s.cognitiveKey).toBe('k');
+        expect(s.neverClose).toEqual(['mail.google.com', 'foo.com']);
+        expect(s.singleInstance).toEqual([]);
+        expect(s.autoGroup).toBe(false);
+        expect(s.archiveAfterDays).toBe(3);
+    });
+});
+
+describe('pickGroupForTab', () => {
+    const groups = [
+        { id: 1, tabs: [{ url: 'https://github.com/a' }] },
+        { id: 2, tabs: [{ url: 'https://github.com/b' }, { url: 'https://www.github.com/c' }] },
+        { id: 3, tabs: [{ url: 'https://news.ycombinator.com' }] }
+    ];
+    it('prefers the group with the most same-site tabs', () => {
+        expect(pickGroupForTab({ url: 'https://github.com/new' }, groups)).toBe(2);
+    });
+    it('falls back to semantic similarity above the threshold', () => {
+        const sim = { 1: 0.2, 2: 0.3, 3: 0.7 };
+        expect(pickGroupForTab({ url: 'https://lobste.rs' }, groups, id => sim[id])).toBe(3);
+        expect(pickGroupForTab({ url: 'https://lobste.rs' }, groups, () => 0.4)).toBe(null);
+    });
+    it('leaves the tab alone without groups or a valid URL', () => {
+        expect(pickGroupForTab({ url: 'https://github.com' }, [])).toBe(null);
+        expect(pickGroupForTab({ url: 'about:blank' }, groups, () => 0.9)).toBe(null);
+    });
+});

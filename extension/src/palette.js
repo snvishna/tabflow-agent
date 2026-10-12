@@ -447,6 +447,9 @@ document.getElementById('settings-trigger').addEventListener('click', () => {
 
         document.getElementById('setting-archive-days').value = s.archiveAfterDays || 3;
         document.getElementById('setting-auto-archive').checked = Boolean(s.autoArchive);
+        document.getElementById('setting-auto-group').checked = s.autoGroup !== false;
+        document.getElementById('setting-never-close').value = (s.neverClose || []).join('\n');
+        document.getElementById('setting-single-instance').value = (s.singleInstance || []).join('\n');
         
         document.getElementById('advanced-toggle').checked = useAdvanced;
         document.getElementById('advanced-settings').style.display = useAdvanced ? 'block' : 'none';
@@ -530,6 +533,10 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
     }
     s.archiveAfterDays = Number(document.getElementById('setting-archive-days').value);
     s.autoArchive = document.getElementById('setting-auto-archive').checked;
+    s.autoGroup = document.getElementById('setting-auto-group').checked;
+    // Domain lists are cleaned up by the background (see withSettingDefaults)
+    s.neverClose = document.getElementById('setting-never-close').value;
+    s.singleInstance = document.getElementById('setting-single-instance').value;
     
     browserAPI.runtime.sendMessage({ action: 'save_settings', settings: s }).then(() => {
         btn.textContent = "Saved ✓";
