@@ -2,58 +2,71 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>TabFlow Agent - System Logs</title>
+    <title>TabFlow Activity Log</title>
+    <link rel="stylesheet" href="src/theme.css">
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: #1c1c1e;
-            color: #fff;
+            font-family: var(--font);
+            background: var(--page-bg);
+            color: var(--text);
             margin: 0;
             padding: 20px;
         }
         h1 {
             font-size: 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid var(--border);
             padding-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .toolbar { display: flex; gap: 10px; align-items: center; }
+        #search-input {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--field);
+            color: var(--text);
+            width: 200px;
         }
         button {
-            background: #0A84FF;
-            color: #fff;
+            background: var(--accent);
+            color: var(--on-accent);
             border: none;
             padding: 6px 12px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
         }
-        #logs-container {
-            margin-top: 20px;
-        }
+        button.danger { background: var(--danger); }
+        #logs-container { margin-top: 20px; }
         .log-entry {
-            background: rgba(255,255,255,0.05);
+            background: var(--surface-raised);
+            border: 1px solid var(--border);
             padding: 12px;
             border-radius: 8px;
             margin-bottom: 10px;
-            font-family: monospace;
+            font-family: var(--font-mono);
             font-size: 13px;
         }
-        .log-time { color: #8e8e93; margin-right: 10px; }
+        .log-time { color: var(--text-3); margin-right: 10px; }
         .log-type { padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-right: 10px; font-size: 11px; }
         .type-pending { background: #ff9f0a; color: #000; }
         .type-success { background: #32d74b; color: #000; }
         .type-error { background: #ff453a; color: #fff; }
-        .log-details { color: #d1d1d6; margin-top: 8px; }
+        .log-details { color: var(--text-2); margin-top: 8px; }
+        .empty { color: var(--text-3); }
     </style>
 </head>
 <body>
     <h1>
-        System Logs 
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="text" id="search-input" placeholder="Fuzzy search logs..." style="padding: 6px 12px; border-radius: 6px; border: none; background: rgba(255,255,255,0.1); color: white; width: 200px;">
+        TabFlow Activity Log
+        <div class="toolbar">
+            <input type="text" id="search-input" placeholder="Search logs…" aria-label="Search logs">
             <button id="btn-refresh">Refresh</button> 
-            <button id="btn-clear" style="background: #ff453a;">Clear Logs</button>
+            <button id="btn-clear" class="danger">Clear Logs</button>
         </div>
     </h1>
     <div id="logs-container">Loading logs...</div>

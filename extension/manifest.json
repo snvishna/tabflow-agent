@@ -26,7 +26,7 @@
     },
     "undo-last-action": {
       "suggested_key": {
-        "default": "Alt+Shift+Z"
+        "default": "Alt+Shift+U"
       },
       "description": "Undo the last TabFlow action"
     }
@@ -46,7 +46,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["palette.html", "src/palette.js", "src/palette.css", "src/providers.js", "src/preview.js"],
+      "resources": ["palette.html", "src/palette.js", "src/palette.css", "src/providers.js", "src/preview.js", "src/preview.css", "src/theme.css", "icons/icon-48.png"],
       "matches": ["<all_urls>"]
     }
   ],

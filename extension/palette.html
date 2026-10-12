@@ -1,30 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <title>TabFlow Agent</title>
+    <link rel="stylesheet" href="src/theme.css">
     <link rel="stylesheet" href="src/palette.css">
+    <link rel="stylesheet" href="src/preview.css">
 </head>
 <body>
-    <div id="palette-container">
+    <div id="palette-container" role="dialog" aria-label="TabFlow command palette">
         <div id="search-header">
-            <img src="icons/icon-48.png" id="search-icon" alt="TabFlow Agent">
-            <span id="command-badge" style="display: none;">&gt;</span>
-            <input type="text" id="search-input" placeholder="Search tabs, or type > for commands..." autofocus autocomplete="off">
-            <div id="settings-trigger" style="display: none; cursor: pointer; font-size: 13px; font-weight: 600; margin-left: 10px; opacity: 0.9; transition: 0.2s; background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 16px; white-space: nowrap; color: #fff; border: 1px solid rgba(255,255,255,0.05);" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'" title="Configure AI Models & Keys">⚙️ Settings</div>
+            <img src="icons/icon-48.png" id="search-icon" alt="">
+            <span id="command-badge" style="display: none;" aria-hidden="true">&gt;</span>
+            <input type="text" id="search-input" placeholder="Search tabs, or type > for commands…" autofocus autocomplete="off"
+                role="combobox" aria-expanded="true" aria-controls="results-list" aria-autocomplete="list" aria-label="Search tabs or type > for commands">
+            <button id="settings-trigger" type="button" class="pill" style="display: none;" title="Settings">⚙️ Settings</button>
         </div>
-        <ul id="results-list"></ul>
+        <ul id="results-list" role="listbox" aria-label="Results"></ul>
+        <div id="palette-footer">
+            <span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
+            <span><kbd>Enter</kbd> open</span>
+            <span><kbd>&gt;</kbd> commands</span>
+            <span><kbd>Esc</kbd> close</span>
+        </div>
 
         <div id="preview-view" hidden>
             <div id="preview-header">
                 <div id="preview-title" role="status" aria-live="polite"></div>
                 <div id="preview-subtitle"></div>
+                <div id="model-progress" class="progress" hidden><span></span></div>
             </div>
             <div id="preview-body"></div>
             <div id="preview-actions">
-                <span class="preview-hint">Enter to apply · Esc to go back</span>
+                <span class="preview-hint"><kbd>Enter</kbd> apply · <kbd>Esc</kbd> back</span>
                 <div>
-                    <button id="btn-preview-cancel" type="button">Back</button>
-                    <button id="btn-preview-apply" type="button" disabled>Apply</button>
+                    <button id="btn-preview-cancel" type="button" class="btn btn-secondary">Back</button>
+                    <button id="btn-preview-apply" type="button" class="btn btn-primary" disabled>Apply</button>
                 </div>
             </div>
         </div>
@@ -33,37 +44,33 @@
             <h3>AI Configuration</h3>
             
             <div class="setting-group">
-                <label>Main API Key (Grouping & Deduplication)</label>
-                <input type="password" id="setting-main-key" placeholder="Paste Claude, OpenAI, or Gemini Key...">
-                <div class="settings-hint-inline" id="main-key-hint">Auto-detects Claude, OpenAI, or Gemini. Leave blank for local AI.</div>
+                <label for="setting-main-key">Main API Key (Grouping &amp; Deduplication)</label>
+                <input type="password" id="setting-main-key" placeholder="Paste Claude, OpenAI, or Gemini Key…">
+                <div class="settings-hint-inline" id="main-key-hint">Optional. Auto-detects Claude, OpenAI, or Gemini. Leave blank to use the free on-device AI.</div>
             </div>
 
-            <div class="setting-group" style="background: transparent; padding: 0; margin-bottom: 15px;">
-                <label style="display: flex; align-items: flex-start; font-weight: normal; font-size: 13px; color: rgba(255,255,255,0.9); cursor: pointer;">
-                    <input type="checkbox" id="advanced-toggle" style="width: auto; margin-right: 8px; margin-top: 2px;">
-                    <div>
-                        <strong style="color: #fff;">Use split engines (Advanced)</strong>
-                        <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px; line-height: 1.4;">
-                            By default, your Main API Key powers both Tab Grouping and Deduplication. Enable this to route deduplication to a dedicated, ultra-fast classifier (like Groq or TogetherAI) to save API costs and reduce latency to ~10ms.
-                        </div>
-                    </div>
-                </label>
-            </div>
+            <label class="check-row plain">
+                <input type="checkbox" id="advanced-toggle">
+                <span>
+                    <strong>Use split engines (Advanced)</strong>
+                    <span class="settings-hint-inline">By default, your Main API Key powers both Tab Grouping and Deduplication. Enable this to route deduplication to a dedicated, fast classifier (like Groq or TogetherAI) to save API costs and reduce latency.</span>
+                </span>
+            </label>
 
-            <div id="advanced-settings" style="display: none; margin-bottom: 24px; padding-left: 12px; border-left: 2px solid rgba(255,255,255,0.1);">
-                <div class="setting-group" style="margin-bottom: 12px; padding: 12px;">
-                    <label>Cognitive Engine (Grouping):</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="setting-cognitive-url" placeholder="Base URL (e.g. https://api.openai.com/v1)" style="flex: 2;">
-                        <input type="text" id="setting-cognitive-model" placeholder="Model (e.g. gpt-4o-mini)" style="flex: 1;">
+            <div id="advanced-settings" style="display: none;">
+                <div class="setting-group compact">
+                    <label for="setting-cognitive-url">Cognitive Engine (Grouping)</label>
+                    <div class="field-row">
+                        <input type="text" id="setting-cognitive-url" placeholder="Base URL (e.g. https://api.openai.com/v1)" class="grow-2">
+                        <input type="text" id="setting-cognitive-model" placeholder="Model (e.g. gpt-4.1-mini)" aria-label="Cognitive engine model" class="grow-1">
                     </div>
                 </div>
-                <div class="setting-group" style="margin-bottom: 0; padding: 12px;">
-                    <label>Reflex Engine (Deduplication):</label>
-                    <input type="password" id="setting-reflex-key" placeholder="Separate API Key (if different)" style="margin-bottom: 8px;">
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="setting-reflex-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" style="flex: 2; margin-bottom: 0;">
-                        <input type="text" id="setting-reflex-model" placeholder="Model (e.g. llama-3.1-8b-instant)" style="flex: 1; margin-bottom: 0;">
+                <div class="setting-group compact">
+                    <label for="setting-reflex-key">Reflex Engine (Deduplication)</label>
+                    <input type="password" id="setting-reflex-key" placeholder="Separate API Key (if different)">
+                    <div class="field-row">
+                        <input type="text" id="setting-reflex-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" aria-label="Reflex engine URL" class="grow-2">
+                        <input type="text" id="setting-reflex-model" placeholder="Model (e.g. llama-3.1-8b-instant)" aria-label="Reflex engine model" class="grow-1">
                     </div>
                 </div>
             </div>
@@ -71,22 +78,22 @@
             <h3>Tab Cleanup</h3>
             <div class="setting-group">
                 <label for="setting-archive-days">Archive tabs unused for more than</label>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="number" id="setting-archive-days" min="1" max="365" step="1" value="3" style="width: 90px; margin-bottom: 0;">
-                    <span class="settings-hint-inline" style="margin-top: 0;">days</span>
+                <div class="field-row center">
+                    <input type="number" id="setting-archive-days" min="1" max="365" step="1" value="3" class="days-input">
+                    <span class="settings-hint-inline">days</span>
                 </div>
-                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px; margin-top: 12px; cursor: pointer;">
-                    <input type="checkbox" id="setting-auto-archive" style="width: auto; margin: 0 8px 0 0;">
-                    Archive these tabs automatically (checked every hour)
+                <label class="check-row">
+                    <input type="checkbox" id="setting-auto-archive">
+                    <span>Archive these tabs automatically (checked every hour)</span>
                 </label>
                 <div class="settings-hint-inline">Archived tabs stay searchable in the palette for 90 days. Active, pinned and audible tabs are never archived.</div>
             </div>
 
             <h3>Grouping</h3>
             <div class="setting-group">
-                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px; cursor: pointer; text-transform: none; color: inherit;">
-                    <input type="checkbox" id="setting-auto-group" style="width: auto; margin: 0 8px 0 0;">
-                    Add new tabs to a matching group automatically
+                <label class="check-row first">
+                    <input type="checkbox" id="setting-auto-group">
+                    <span>Add new tabs to a matching group automatically</span>
                 </label>
                 <div class="settings-hint-inline">A new tab joins an existing group that already has tabs from the same site, or one about the same topic. It never creates groups on its own.</div>
             </div>
@@ -103,14 +110,24 @@
                 <div class="settings-hint-inline">Opening a new tab on these sites reuses the tab you already have open instead.</div>
             </div>
 
-            <div class="settings-actions" style="display: flex; justify-content: space-between; align-items: center;">
-                <a href="admin.html" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,0.05); color: #5ac8fa; font-size: 13px; font-weight: 500; text-decoration: none; border-radius: 6px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                    Admin Console
+            <h3>Toolbar &amp; Shortcuts</h3>
+            <div class="setting-group">
+                <label class="check-row first">
+                    <input type="checkbox" id="setting-badge-count">
+                    <span>Show the number of open tabs on the toolbar icon</span>
+                </label>
+                <div id="shortcut-list" class="shortcut-list"></div>
+                <button type="button" id="btn-change-shortcuts" class="btn btn-secondary small">Change shortcuts</button>
+            </div>
+
+            <div class="settings-actions">
+                <a href="admin.html" target="_blank" class="link-pill">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    Activity Log
                 </a>
                 <div>
-                    <button id="btn-save-settings">Save Settings</button>
-                    <button id="btn-cancel-settings">Cancel</button>
+                    <button id="btn-cancel-settings" type="button" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-save-settings" type="button" class="btn btn-primary">Save Settings</button>
                 </div>
             </div>
         </div>

@@ -134,6 +134,7 @@ export async function openPreview(kind, handlers) {
     el('preview-title').textContent = config.loading;
     el('preview-subtitle').textContent = kind.startsWith('group') ? 'The first run downloads a small AI model and can take a few seconds.' : '';
     el('preview-view').classList.add('loading');
+    el('model-progress').hidden = true;
     el('btn-preview-apply').disabled = true;
     el('btn-preview-apply').textContent = 'Apply';
     el('btn-preview-apply').focus();
@@ -146,6 +147,7 @@ export async function openPreview(kind, handlers) {
     }
     if (!state || state.kind !== kind) return; // user left the preview
     el('preview-view').classList.remove('loading');
+    el('model-progress').hidden = true;
     if (!res || res.status !== 'success') {
         showEmpty('Something went wrong', (res && res.error) || 'Please try again.');
         return;
@@ -195,12 +197,24 @@ export async function applyPreview() {
     else if (state.kind === 'dedupe') message = { action: 'apply_dedupe', tabIds: selectedTabIds() };
     else message = { action: 'apply_archive', tabIds: selectedTabIds() };
     // Wait for the background to finish before the palette is torn down (see coding standards)
-    try { await browserAPI.runtime.sendMessage(message); } catch (e) { console.error(e); }
+    let result = null;
+    try { result = await browserAPI.runtime.sendMessage(message); } catch (e) { console.error(e); }
     const handlers = state.handlers;
     el('preview-view').hidden = true;
     state = null;
-    handlers.onDone();
+    handlers.onDone(result);
 }
+
+// The first local-AI run downloads the model; show how far along it is
+browserAPI.runtime.onMessage.addListener((message) => {
+    if (message.action !== 'model_progress' || !state || !el('preview-view').classList.contains('loading')) return;
+    const bar = el('model-progress');
+    bar.hidden = message.done;
+    bar.firstElementChild.style.width = `${message.percent}%`;
+    el('preview-subtitle').textContent = message.done
+        ? 'AI model ready. Sorting your tabs…'
+        : `Downloading the on-device AI model (one time only)… ${message.percent}%`;
+});
 
 el('btn-preview-cancel').addEventListener('click', closePreview);
 el('btn-preview-apply').addEventListener('click', applyPreview);
