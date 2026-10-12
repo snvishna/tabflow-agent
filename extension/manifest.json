@@ -8,6 +8,7 @@
     "tabGroups",
     "storage",
     "webNavigation",
+    "alarms",
     "scripting",
     "activeTab",
     "sessions"
@@ -39,7 +40,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["palette.html", "src/palette.js", "src/palette.css"],
+      "resources": ["palette.html", "src/palette.js", "src/palette.css", "src/providers.js"],
       "matches": ["<all_urls>"]
     }
   ],

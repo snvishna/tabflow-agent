@@ -55,6 +55,7 @@ English
 | `tabGroups` | permissions | Enables the extension to physically move related tabs into color-coded browser tab groups for visual organization. |
 | `storage` | permissions | Required to securely save your API configuration, settings, and local embeddings for the AI engines. |
 | `webNavigation` | permissions | Allows the extension to intercept page navigation before it completes, enabling instant deduplication when you click a link you already have open. |
+| `alarms` | permissions | Runs the optional hourly auto-archive check, which saves and closes tabs you have not used for longer than the number of days you choose in settings. Off by default. |
 | `scripting` | permissions | Needed to inject the command palette interface directly over your active web pages so you can access it without leaving your workflow. |
 | `activeTab` | permissions | Provides temporary access to the current tab when you activate the extension, allowing it to take immediate actions like closing or refreshing the active view. |
 | `sessions` | permissions | Enables the extension to read your recently closed tabs, ensuring duplicate detection can also restore recently lost work if needed. |
@@ -128,6 +129,7 @@ When submitting to the Chrome Web Store, you will be prompted to provide justifi
 
 ### Permission Justifications
 - **activeTab**: "Required to inject the Command Palette overlay (iframe) into the current tab when the user triggers the keyboard shortcut or clicks the extension icon."
+- **alarms**: "Used only for the optional auto-archive feature: once an hour it archives tabs the user has not visited for longer than the number of days they set in TabFlow settings. It is off until the user enables it."
 - **<all_urls> / host permission**: "Required to inject the Command Palette UI over any webpage the user is currently browsing, and to read the URLs and Titles of all open tabs for AI categorization."
 - **scripting**: "Required to execute the content script (`content.js`) that mounts the Command Palette iframe onto the active webpage."
 - **sessions**: "Required to reliably track tab history and restore tabs from the local IndexedDB archive without losing their session context."

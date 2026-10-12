@@ -45,7 +45,7 @@ async function embedText(text) {
  * Mathematically groups tabs based on cosine similarity of their titles/URLs.
  * Uses a simple agglomerative thresholding approach.
  */
-export async function clusterTabs(tabs, similarityThreshold = 0.45) { // Lowered for broader grouping
+export async function clusterTabs(tabs, similarityThreshold = 0.45, { domainBonus = 0.3 } = {}) { // Lowered for broader grouping
     console.log(`Starting clustering for ${tabs.length} tabs...`);
     
     // 1. Generate embeddings for all tabs
@@ -77,7 +77,7 @@ export async function clusterTabs(tabs, similarityThreshold = 0.45) { // Lowered
                 const host1 = extractDomain(item.tab.url);
                 const host2 = extractDomain(repItem.tab.url);
                 if (host1 === host2 && host1 !== '') {
-                    score += 0.3; // Huge bonus for same website
+                    score += domainBonus; // Bonus for same website (disabled for duplicate detection)
                 }
             } catch(e) {}
             

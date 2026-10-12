@@ -20,10 +20,8 @@ export async function archiveTab(tab) {
 export async function enforceTTL() {
   const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
   const cutoff = Date.now() - NINETY_DAYS;
-  // Dexie bulk delete for old records
-  const oldTabs = await db.archivedTabs.filter(t => t.timestamp < cutoff).toArray();
-  const oldIds = oldTabs.map(t => t.id);
-  await db.archivedTabs.bulkDelete(oldIds);
+  // Uses the timestamp index instead of scanning every archived tab
+  await db.archivedTabs.where('timestamp').below(cutoff).delete();
 }
 
 export async function getArchivedTabs() {
