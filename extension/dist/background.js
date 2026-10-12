@@ -29117,8 +29117,46 @@ function sanitizeArchiveDays(value, fallback = 3) {
   if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.min(n, 365);
 }
+function parseDomainList(text) {
+  if (!text) return [];
+  const domains = String(text).split(/[\s,]+/).map((entry) => {
+    let d = entry.trim().toLowerCase();
+    if (!d) return "";
+    d = d.replace(/^[a-z]+:\/\//, "").replace(/^\*\./, "").replace(/^www\./, "");
+    d = d.split(/[/?#]/)[0].split(":")[0];
+    return /^[a-z0-9.-]+$/.test(d) && !d.startsWith(".") && !d.endsWith(".") ? d : "";
+  }).filter(Boolean);
+  return [...new Set(domains)];
+}
+function urlMatchesDomains(urlString, domains) {
+  if (!domains || domains.length === 0) return false;
+  try {
+    const { hostname } = new URL(urlString);
+    return domains.some((d) => hostMatchesDomain(hostname, d));
+  } catch (e) {
+    return false;
+  }
+}
+function withSettingDefaults(stored = {}) {
+  const s = { ...SETTING_DEFAULTS, ...stored || {} };
+  const toList = (v) => parseDomainList(Array.isArray(v) ? v.join("\n") : v);
+  s.archiveAfterDays = sanitizeArchiveDays(s.archiveAfterDays);
+  s.autoArchive = Boolean(s.autoArchive);
+  s.autoGroup = s.autoGroup !== false;
+  s.neverClose = toList(s.neverClose);
+  s.singleInstance = toList(s.singleInstance);
+  return s;
+}
+var SETTING_DEFAULTS;
 var init_utils = __esm({
   "src/utils.js"() {
+    SETTING_DEFAULTS = {
+      archiveAfterDays: 3,
+      autoArchive: false,
+      autoGroup: true,
+      neverClose: [],
+      singleInstance: ["localhost"]
+    };
   }
 });
 
@@ -35574,6 +35612,39 @@ TARGET NEW URL: {target_url}`
   }
 });
 
+// src/autogroup.js
+function pickGroupForTab(tab, groups, similarityFor = null) {
+  const domain = extractDomain(tab.url);
+  if (!domain || groups.length === 0) return null;
+  let best = null;
+  let bestCount = 0;
+  for (const group of groups) {
+    const count = group.tabs.filter((t) => extractDomain(t.url) === domain).length;
+    if (count > bestCount) {
+      best = group.id;
+      bestCount = count;
+    }
+  }
+  if (best !== null) return best;
+  if (!similarityFor) return null;
+  let bestScore = AUTO_GROUP_SIMILARITY;
+  for (const group of groups) {
+    const score = similarityFor(group.id);
+    if (score > bestScore) {
+      best = group.id;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+var AUTO_GROUP_SIMILARITY;
+var init_autogroup = __esm({
+  "src/autogroup.js"() {
+    init_utils();
+    AUTO_GROUP_SIMILARITY = 0.5;
+  }
+});
+
 // src/providers.js
 function detectProvider(key) {
   if (!key) return null;
@@ -35746,6 +35817,7 @@ var require_background = __commonJS({
     init_db();
     init_prompts();
     init_utils();
+    init_autogroup();
     init_providers();
     init_undo();
     init_toast();
@@ -35950,7 +36022,10 @@ var require_background = __commonJS({
       browserAPI3.action.setBadgeBackgroundColor({ color: "#b026ff" });
       browserAPI3.action.setBadgeText({ text: "AI" });
     }
-    var singleInstanceDomains = ["localhost"];
+    async function getSettings() {
+      const { agentSettings } = await browserAPI3.storage.local.get(["agentSettings"]);
+      return withSettingDefaults(agentSettings);
+    }
     async function safeRemoveTab(tabId) {
       try {
         await browserAPI3.tabs.remove(tabId);
@@ -35970,18 +36045,24 @@ var require_background = __commonJS({
       }
     }
     var FRESH_TABS_KEY = "freshTabs";
-    var freshTabsMutex = Promise.resolve();
+    var sessionMapMutex = Promise.resolve();
+    function updateSessionMap(key, mutator) {
+      const run = sessionMapMutex.then(async () => {
+        const res = await browserAPI3.storage.session.get([key]);
+        const map = res[key] || {};
+        const result = mutator(map);
+        await browserAPI3.storage.session.set({ [key]: map });
+        return result;
+      });
+      sessionMapMutex = run.catch((e) => console.error(`Updating ${key} failed:`, e));
+      return run;
+    }
     function updateFreshTabs(mutator) {
-      freshTabsMutex = freshTabsMutex.then(async () => {
-        const res = await browserAPI3.storage.session.get([FRESH_TABS_KEY]);
-        const fresh = res[FRESH_TABS_KEY] || {};
-        mutator(fresh);
-        await browserAPI3.storage.session.set({ [FRESH_TABS_KEY]: fresh });
-      }).catch((e) => console.error("Fresh tab tracking failed:", e));
-      return freshTabsMutex;
+      return updateSessionMap(FRESH_TABS_KEY, mutator).catch(() => {
+      });
     }
     async function isFreshTab(tabId) {
-      await freshTabsMutex;
+      await sessionMapMutex;
       const res = await browserAPI3.storage.session.get([FRESH_TABS_KEY]);
       return Boolean((res[FRESH_TABS_KEY] || {})[tabId]);
     }
@@ -36065,8 +36146,8 @@ var require_background = __commonJS({
         if (!await isFreshTab(details.tabId)) return;
         if (await isDedupeBypassed(targetUrlStr)) return;
         const targetUrl = new URL(targetUrlStr);
-        const storage = await browserAPI3.storage.local.get(["agentSettings"]);
-        const s = storage.agentSettings || {};
+        const s = await getSettings();
+        if (urlMatchesDomains(targetUrlStr, s.neverClose)) return;
         const existingTabs = await browserAPI3.tabs.query({});
         const hostMatches = existingTabs.filter((tab) => {
           if (tab.id === details.tabId) return false;
@@ -36112,7 +36193,7 @@ TARGET NEW URL: ${targetUrlStr}`;
           }
           return;
         }
-        const isSingleInstance = singleInstanceDomains.some((d) => hostMatchesDomain(targetUrl.hostname, d));
+        const isSingleInstance = s.singleInstance.some((d) => hostMatchesDomain(targetUrl.hostname, d));
         if (isSingleInstance) {
           addLog("DECISION", "Local Fallback", "success", `Single-instance domain matched. Updating tab ${match.id} to new path: ${targetUrlStr}`);
           await redirectToExistingTab(details.tabId, match, targetUrlStr, `One tab per ${targetUrl.hostname}`);
@@ -36123,12 +36204,11 @@ TARGET NEW URL: ${targetUrlStr}`;
     });
     var AUTO_ARCHIVE_ALARM = "auto-archive";
     async function getArchiveDays() {
-      const { agentSettings } = await browserAPI3.storage.local.get(["agentSettings"]);
-      return sanitizeArchiveDays((agentSettings || {}).archiveAfterDays);
+      return (await getSettings()).archiveAfterDays;
     }
     async function planStaleTabs(query = {}) {
-      const days = await getArchiveDays();
-      const tabs = await browserAPI3.tabs.query(query);
+      const { archiveAfterDays: days, neverClose } = await getSettings();
+      const tabs = (await browserAPI3.tabs.query(query)).filter((t) => !urlMatchesDomains(t.url, neverClose));
       return { days, tabs: selectStaleTabs(tabs, Date.now(), days) };
     }
     async function archiveAndCloseTabs(tabIds, label) {
@@ -36275,15 +36355,12 @@ TARGET NEW URL: ${targetUrlStr}`;
         return false;
       }
       if (message.action === "get_settings") {
-        browserAPI3.storage.local.get(["agentSettings"]).then((result) => {
-          sendResponse(result.agentSettings || {});
-        });
+        getSettings().then((settings) => sendResponse(settings));
         return true;
       }
       if (message.action === "save_settings") {
         browserAPI3.storage.local.get(["agentSettings"]).then(async (result) => {
-          const merged = { ...result.agentSettings || {}, ...message.settings };
-          merged.archiveAfterDays = sanitizeArchiveDays(merged.archiveAfterDays);
+          const merged = withSettingDefaults({ ...result.agentSettings || {}, ...message.settings });
           await browserAPI3.storage.local.set({ agentSettings: merged });
           await syncAutoArchiveAlarm(merged);
           sendResponse({ status: "success" });
@@ -36448,15 +36525,14 @@ TARGET NEW URL: ${targetUrlStr}`;
     }
     async function planGrouping(windowId, mode) {
       const tabs = await browserAPI3.tabs.query({ windowId });
-      let targetTabs = tabs.filter((t) => !t.pinned);
+      let targetTabs = tabs.filter((t) => !t.pinned && isWebUrl(t.url));
       if (mode === "leaf") targetTabs = targetTabs.filter((t) => !isGrouped(t));
       const plan = { windowId, mode, groups: [], tabs: {} };
       targetTabs.forEach((t) => {
         plan.tabs[t.id] = summarizeTab(t);
       });
       if (targetTabs.length <= 1) return plan;
-      const storage = await browserAPI3.storage.local.get(["agentSettings"]);
-      const s = storage.agentSettings || {};
+      const s = await getSettings();
       let clusters = null;
       if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel) {
         try {
@@ -36535,7 +36611,7 @@ ${tabsJson}`);
       const windowId = plan.windowId;
       const snapshot = await snapshotGroups(windowId);
       const live = await browserAPI3.tabs.query({ windowId });
-      const liveIds = new Set(live.filter((t) => !t.pinned).map((t) => t.id));
+      const liveIds = new Set(live.filter((t) => !t.pinned && isWebUrl(t.url)).map((t) => t.id));
       if (plan.mode === "force") {
         const grouped2 = live.filter(isGrouped).map((t) => t.id);
         if (grouped2.length && browserAPI3.tabs.ungroup) await browserAPI3.tabs.ungroup(grouped2);
@@ -36574,8 +36650,91 @@ ${tabsJson}`);
       }
       return { grouped, undoId };
     }
+    var PENDING_GROUP_KEY = "pendingAutoGroup";
+    var embeddingCache = /* @__PURE__ */ new Map();
+    var EMBEDDING_CACHE_MAX = 500;
+    async function cachedEmbedding(text) {
+      if (embeddingCache.has(text)) return embeddingCache.get(text);
+      const vector = await embedText(text);
+      if (embeddingCache.size >= EMBEDDING_CACHE_MAX) embeddingCache.delete(embeddingCache.keys().next().value);
+      embeddingCache.set(text, vector);
+      return vector;
+    }
+    function tabText(tab) {
+      return `${tab.title || ""} ${extractHost(tab.url)}`.trim();
+    }
+    function markPendingAutoGroup(tabId, pending) {
+      return updateSessionMap(PENDING_GROUP_KEY, (map) => {
+        if (pending) map[tabId] = Date.now();
+        else delete map[tabId];
+      });
+    }
+    async function autoGroupTab(tabId) {
+      const wasPending = await updateSessionMap(PENDING_GROUP_KEY, (map) => {
+        const had = Boolean(map[tabId]);
+        delete map[tabId];
+        return had;
+      });
+      if (!wasPending) return;
+      const settings = await getSettings();
+      if (!settings.autoGroup || !browserAPI3.tabGroups || !browserAPI3.tabs.group) return;
+      let tab;
+      try {
+        tab = await browserAPI3.tabs.get(tabId);
+      } catch (e) {
+        return;
+      }
+      if (tab.pinned || isGrouped(tab) || !isWebUrl(tab.url)) return;
+      const groups = (await browserAPI3.tabGroups.query({ windowId: tab.windowId })).filter((g) => g.title);
+      if (groups.length === 0) return;
+      const windowTabs = await browserAPI3.tabs.query({ windowId: tab.windowId });
+      const candidates = groups.map((g) => ({ id: g.id, title: g.title, tabs: windowTabs.filter((t) => t.groupId === g.id) })).filter((g) => g.tabs.length > 0);
+      let similarities = null;
+      if (!pickGroupForTab(tab, candidates)) {
+        try {
+          const tabVector = await cachedEmbedding(tabText(tab));
+          similarities = {};
+          for (const g of candidates) {
+            const vectors = await Promise.all(g.tabs.map((t) => cachedEmbedding(tabText(t))));
+            const centroid = new Float32Array(tabVector.length);
+            vectors.forEach((v) => v.forEach((x, i) => {
+              centroid[i] += x / vectors.length;
+            }));
+            similarities[g.id] = cosineSimilarity(tabVector, centroid);
+          }
+        } catch (e) {
+          console.error("Auto-group similarity failed:", e);
+        }
+      }
+      const groupId = pickGroupForTab(tab, candidates, similarities ? (id) => similarities[id] || 0 : null);
+      if (groupId === null) return;
+      try {
+        await browserAPI3.tabs.group({ groupId, tabIds: [tab.id] });
+        const group = candidates.find((g) => g.id === groupId);
+        await recordUndo({ kind: "ungroup-tab", label: `Take "${tab.title || extractHost(tab.url)}" out of "${group.title}"`, tabId: tab.id });
+        addLog("DECISION", "Auto-group", "success", `Added ${tab.url} to group "${group.title}".`);
+      } catch (e) {
+        console.error("Auto-group failed:", e);
+      }
+    }
+    browserAPI3.tabs.onCreated.addListener(async (tab) => {
+      if (isGrouped(tab)) return;
+      const { browserStartedAt } = await browserAPI3.storage.session.get(["browserStartedAt"]);
+      if (browserStartedAt && Date.now() - browserStartedAt < STARTUP_GRACE_MS) return;
+      markPendingAutoGroup(tab.id, true).catch(() => {
+      });
+    });
+    browserAPI3.tabs.onRemoved.addListener((tabId) => {
+      markPendingAutoGroup(tabId, false).catch(() => {
+      });
+    });
+    browserAPI3.webNavigation.onCompleted.addListener((details) => {
+      if (details.frameId !== 0 || !isWebUrl(details.url)) return;
+      autoGroupTab(details.tabId).catch((e) => console.error("Auto-group failed:", e));
+    });
     async function planDuplicates(windowId) {
-      const tabs = await browserAPI3.tabs.query({ windowId });
+      const { neverClose } = await getSettings();
+      const tabs = (await browserAPI3.tabs.query({ windowId })).filter((t) => !urlMatchesDomains(t.url, neverClose));
       const { toClose: exact, toKeep } = planExactDuplicates(tabs);
       const webTabs = toKeep.filter((t) => isWebUrl(t.url));
       const clusters = await clusterTabs(webTabs, 0.95, { domainBonus: 0 });
@@ -36599,6 +36758,11 @@ ${tabsJson}`);
       if (!entry) return false;
       if (entry.kind === "grouping") {
         await restoreGroups(entry.windowId, entry.snapshot);
+      } else if (entry.kind === "ungroup-tab") {
+        try {
+          await browserAPI3.tabs.ungroup([entry.tabId]);
+        } catch (e) {
+        }
       } else if (entry.kind === "close") {
         await addDedupeBypass(entry.tabs.map((t) => t.url));
         const tabs = [...entry.tabs].sort((a, b) => (a.index || 0) - (b.index || 0));

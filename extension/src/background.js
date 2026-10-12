@@ -1,7 +1,8 @@
-import { clusterTabs, getSmartGroupName } from './clustering.js';
+import { clusterTabs, getSmartGroupName, embedText } from './clustering.js';
 import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, bulkImportArchivedTabs } from './db.js';
 import { PROMPTS } from './prompts.js';
-import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, sanitizeArchiveDays } from './utils.js';
+import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, withSettingDefaults, urlMatchesDomains, cosineSimilarity } from './utils.js';
+import { pickGroupForTab } from './autogroup.js';
 import { defaultsForKey } from './providers.js';
 import { recordUndo, peekUndo, takeUndo, describeClosedTab } from './undo.js';
 import { showToast } from './toast.js';
@@ -248,8 +249,11 @@ if (browserAPI.action) {
 }
 
 // --- Smart Tab Reuse & Deduplication Router ---
-// Domains where only one tab should exist; a new tab on them reuses the existing one.
-const singleInstanceDomains = ["localhost"];
+/** All settings with defaults applied (see withSettingDefaults). */
+async function getSettings() {
+    const { agentSettings } = await browserAPI.storage.local.get(['agentSettings']);
+    return withSettingDefaults(agentSettings);
+}
 
 async function safeRemoveTab(tabId) {
     try { await browserAPI.tabs.remove(tabId); } catch (e) { /* ignore already closed */ }
@@ -267,20 +271,27 @@ async function safeFocusWindow(windowId) {
 // first web page commits. Navigating inside an existing tab (links, form posts) is never touched.
 // Kept in session storage so it survives service worker restarts.
 const FRESH_TABS_KEY = 'freshTabs';
-let freshTabsMutex = Promise.resolve();
+let sessionMapMutex = Promise.resolve();
+
+/** Serialized read-modify-write of an object stored in session storage. */
+function updateSessionMap(key, mutator) {
+    const run = sessionMapMutex.then(async () => {
+        const res = await browserAPI.storage.session.get([key]);
+        const map = res[key] || {};
+        const result = mutator(map);
+        await browserAPI.storage.session.set({ [key]: map });
+        return result;
+    });
+    sessionMapMutex = run.catch(e => console.error(`Updating ${key} failed:`, e));
+    return run;
+}
 
 function updateFreshTabs(mutator) {
-    freshTabsMutex = freshTabsMutex.then(async () => {
-        const res = await browserAPI.storage.session.get([FRESH_TABS_KEY]);
-        const fresh = res[FRESH_TABS_KEY] || {};
-        mutator(fresh);
-        await browserAPI.storage.session.set({ [FRESH_TABS_KEY]: fresh });
-    }).catch(e => console.error("Fresh tab tracking failed:", e));
-    return freshTabsMutex;
+    return updateSessionMap(FRESH_TABS_KEY, mutator).catch(() => {});
 }
 
 async function isFreshTab(tabId) {
-    await freshTabsMutex;
+    await sessionMapMutex;
     const res = await browserAPI.storage.session.get([FRESH_TABS_KEY]);
     return Boolean((res[FRESH_TABS_KEY] || {})[tabId]);
 }
@@ -381,10 +392,9 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         if (await isDedupeBypassed(targetUrlStr)) return;
 
         const targetUrl = new URL(targetUrlStr);
-        
-        // Load Settings to check for Reflex Engine
-        const storage = await browserAPI.storage.local.get(['agentSettings']);
-        const s = storage.agentSettings || {};
+        const s = await getSettings();
+        // Per-site rule: never close tabs from these sites
+        if (urlMatchesDomains(targetUrlStr, s.neverClose)) return;
         
         // 1. Check for basic host match across existing tabs
         const existingTabs = await browserAPI.tabs.query({});
@@ -438,7 +448,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
 
         // 4. Free Local Fallback (Single-Instance Domains)
-        const isSingleInstance = singleInstanceDomains.some(d => hostMatchesDomain(targetUrl.hostname, d));
+        const isSingleInstance = s.singleInstance.some(d => hostMatchesDomain(targetUrl.hostname, d));
         if (isSingleInstance) {
             addLog('DECISION', 'Local Fallback', 'success', `Single-instance domain matched. Updating tab ${match.id} to new path: ${targetUrlStr}`);
             await redirectToExistingTab(details.tabId, match, targetUrlStr, `One tab per ${targetUrl.hostname}`);
@@ -452,14 +462,13 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
 const AUTO_ARCHIVE_ALARM = 'auto-archive';
 
 async function getArchiveDays() {
-    const { agentSettings } = await browserAPI.storage.local.get(['agentSettings']);
-    return sanitizeArchiveDays((agentSettings || {}).archiveAfterDays);
+    return (await getSettings()).archiveAfterDays;
 }
 
 /** Tabs that would be archived right now (see selectStaleTabs). */
 async function planStaleTabs(query = {}) {
-    const days = await getArchiveDays();
-    const tabs = await browserAPI.tabs.query(query);
+    const { archiveAfterDays: days, neverClose } = await getSettings();
+    const tabs = (await browserAPI.tabs.query(query)).filter(t => !urlMatchesDomains(t.url, neverClose));
     return { days, tabs: selectStaleTabs(tabs, Date.now(), days) };
 }
 
@@ -625,17 +634,14 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.action === 'get_settings') {
-        browserAPI.storage.local.get(['agentSettings']).then(result => {
-            sendResponse(result.agentSettings || {});
-        });
+        getSettings().then(settings => sendResponse(settings));
         return true;
     }
 
     if (message.action === 'save_settings') {
         browserAPI.storage.local.get(['agentSettings']).then(async (result) => {
             // Merge so settings saved from one screen never wipe fields owned by another
-            const merged = { ...(result.agentSettings || {}), ...message.settings };
-            merged.archiveAfterDays = sanitizeArchiveDays(merged.archiveAfterDays);
+            const merged = withSettingDefaults({ ...(result.agentSettings || {}), ...message.settings });
             await browserAPI.storage.local.set({ agentSettings: merged });
             await syncAutoArchiveAlarm(merged);
             sendResponse({ status: 'success' });
@@ -823,16 +829,15 @@ async function getTargetWindowId(sender) {
  */
 async function planGrouping(windowId, mode) {
     const tabs = await browserAPI.tabs.query({ windowId });
-    // Pinned tabs cannot live in groups
-    let targetTabs = tabs.filter(t => !t.pinned);
+    // Pinned tabs cannot live in groups; blank, new-tab and browser pages stay ungrouped
+    let targetTabs = tabs.filter(t => !t.pinned && isWebUrl(t.url));
     if (mode === 'leaf') targetTabs = targetTabs.filter(t => !isGrouped(t));
 
     const plan = { windowId, mode, groups: [], tabs: {} };
     targetTabs.forEach(t => { plan.tabs[t.id] = summarizeTab(t); });
     if (targetTabs.length <= 1) return plan;
 
-    const storage = await browserAPI.storage.local.get(['agentSettings']);
-    const s = storage.agentSettings || {};
+    const s = await getSettings();
     let clusters = null;
 
     // 1. Cognitive Engine (user's own AI key)
@@ -921,7 +926,7 @@ async function applyGroupPlan(plan) {
     const windowId = plan.windowId;
     const snapshot = await snapshotGroups(windowId);
     const live = await browserAPI.tabs.query({ windowId });
-    const liveIds = new Set(live.filter(t => !t.pinned).map(t => t.id));
+    const liveIds = new Set(live.filter(t => !t.pinned && isWebUrl(t.url)).map(t => t.id));
 
     if (plan.mode === 'force') {
         const grouped = live.filter(isGrouped).map(t => t.id);
@@ -962,9 +967,104 @@ async function applyGroupPlan(plan) {
     return { grouped, undoId };
 }
 
+// --- Auto-group new tabs ---
+// New tabs wait here until their first page finishes loading, then may join a matching group once.
+const PENDING_GROUP_KEY = 'pendingAutoGroup';
+const embeddingCache = new Map();
+const EMBEDDING_CACHE_MAX = 500;
+
+async function cachedEmbedding(text) {
+    if (embeddingCache.has(text)) return embeddingCache.get(text);
+    const vector = await embedText(text);
+    if (embeddingCache.size >= EMBEDDING_CACHE_MAX) embeddingCache.delete(embeddingCache.keys().next().value);
+    embeddingCache.set(text, vector);
+    return vector;
+}
+
+function tabText(tab) {
+    return `${tab.title || ''} ${extractHost(tab.url)}`.trim();
+}
+
+function markPendingAutoGroup(tabId, pending) {
+    return updateSessionMap(PENDING_GROUP_KEY, map => {
+        if (pending) map[tabId] = Date.now();
+        else delete map[tabId];
+    });
+}
+
+async function autoGroupTab(tabId) {
+    // Take the pending flag atomically so a tab is only ever considered once
+    const wasPending = await updateSessionMap(PENDING_GROUP_KEY, map => {
+        const had = Boolean(map[tabId]);
+        delete map[tabId];
+        return had;
+    });
+    if (!wasPending) return;
+
+    const settings = await getSettings();
+    if (!settings.autoGroup || !browserAPI.tabGroups || !browserAPI.tabs.group) return;
+
+    let tab;
+    try { tab = await browserAPI.tabs.get(tabId); } catch (e) { return; }
+    if (tab.pinned || isGrouped(tab) || !isWebUrl(tab.url)) return;
+
+    const groups = (await browserAPI.tabGroups.query({ windowId: tab.windowId })).filter(g => g.title);
+    if (groups.length === 0) return;
+    const windowTabs = await browserAPI.tabs.query({ windowId: tab.windowId });
+    const candidates = groups.map(g => ({ id: g.id, title: g.title, tabs: windowTabs.filter(t => t.groupId === g.id) }))
+        .filter(g => g.tabs.length > 0);
+
+    // Semantic match only when no group has the same site (loads the local model)
+    let similarities = null;
+    if (!pickGroupForTab(tab, candidates)) {
+        try {
+            const tabVector = await cachedEmbedding(tabText(tab));
+            similarities = {};
+            for (const g of candidates) {
+                const vectors = await Promise.all(g.tabs.map(t => cachedEmbedding(tabText(t))));
+                const centroid = new Float32Array(tabVector.length);
+                vectors.forEach(v => v.forEach((x, i) => { centroid[i] += x / vectors.length; }));
+                similarities[g.id] = cosineSimilarity(tabVector, centroid);
+            }
+        } catch (e) {
+            console.error("Auto-group similarity failed:", e);
+        }
+    }
+    const groupId = pickGroupForTab(tab, candidates, similarities ? id => similarities[id] || 0 : null);
+    if (groupId === null) return;
+
+    try {
+        await browserAPI.tabs.group({ groupId, tabIds: [tab.id] });
+        const group = candidates.find(g => g.id === groupId);
+        await recordUndo({ kind: 'ungroup-tab', label: `Take "${tab.title || extractHost(tab.url)}" out of "${group.title}"`, tabId: tab.id });
+        addLog('DECISION', 'Auto-group', 'success', `Added ${tab.url} to group "${group.title}".`);
+    } catch (e) {
+        console.error("Auto-group failed:", e);
+    }
+}
+
+browserAPI.tabs.onCreated.addListener(async (tab) => {
+    // Tabs the browser already put in a group (opened from a grouped tab) are left alone,
+    // and so are tabs reopened by session restore at startup
+    if (isGrouped(tab)) return;
+    const { browserStartedAt } = await browserAPI.storage.session.get(['browserStartedAt']);
+    if (browserStartedAt && Date.now() - browserStartedAt < STARTUP_GRACE_MS) return;
+    markPendingAutoGroup(tab.id, true).catch(() => {});
+});
+
+browserAPI.tabs.onRemoved.addListener((tabId) => {
+    markPendingAutoGroup(tabId, false).catch(() => {});
+});
+
+browserAPI.webNavigation.onCompleted.addListener((details) => {
+    if (details.frameId !== 0 || !isWebUrl(details.url)) return;
+    autoGroupTab(details.tabId).catch(e => console.error("Auto-group failed:", e));
+});
+
 // --- Duplicate cleanup (preview + apply) ---
 async function planDuplicates(windowId) {
-    const tabs = await browserAPI.tabs.query({ windowId });
+    const { neverClose } = await getSettings();
+    const tabs = (await browserAPI.tabs.query({ windowId })).filter(t => !urlMatchesDomains(t.url, neverClose));
     // 1. Exact URL duplicates (ignores #fragments and trailing slashes)
     const { toClose: exact, toKeep } = planExactDuplicates(tabs);
     // 2. Near-identical pages. The same-site bonus is disabled: two different pages on one site are not duplicates.
@@ -994,6 +1094,8 @@ async function undoAction(id) {
 
     if (entry.kind === 'grouping') {
         await restoreGroups(entry.windowId, entry.snapshot);
+    } else if (entry.kind === 'ungroup-tab') {
+        try { await browserAPI.tabs.ungroup([entry.tabId]); } catch (e) { /* tab closed */ }
     } else if (entry.kind === 'close') {
         await addDedupeBypass(entry.tabs.map(t => t.url));
         const tabs = [...entry.tabs].sort((a, b) => (a.index || 0) - (b.index || 0));
