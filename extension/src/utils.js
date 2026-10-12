@@ -187,7 +187,8 @@ export const SETTING_DEFAULTS = {
     autoArchive: false,
     autoGroup: true,
     neverClose: [],
-    singleInstance: ['localhost']
+    singleInstance: ['localhost'],
+    showTabCount: true
 };
 
 /**
@@ -200,6 +201,7 @@ export function withSettingDefaults(stored = {}) {
     s.archiveAfterDays = sanitizeArchiveDays(s.archiveAfterDays);
     s.autoArchive = Boolean(s.autoArchive);
     s.autoGroup = s.autoGroup !== false;
+    s.showTabCount = s.showTabCount !== false;
     s.neverClose = toList(s.neverClose);
     s.singleInstance = toList(s.singleInstance);
     return s;

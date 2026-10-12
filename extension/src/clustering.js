@@ -16,20 +16,56 @@ const runtimeAPI = typeof browser !== "undefined" ? browser : chrome;
 env.backends.onnx.wasm.wasmPaths = runtimeAPI.runtime.getURL('dist/');
 
 let embedder = null;
+let embedderPromise = null;
+let progressListener = null;
+
+/**
+ * Registers a callback for model download progress: fn({ percent, done }).
+ * The model is downloaded once and then served from the browser cache.
+ */
+export function setModelProgressListener(fn) {
+    progressListener = fn;
+}
+
+function reportProgress(files) {
+    if (!progressListener) return;
+    const all = Object.values(files);
+    const total = all.reduce((n, f) => n + (f.total || 0), 0);
+    const loaded = all.reduce((n, f) => n + (f.loaded || 0), 0);
+    const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+    try { progressListener({ percent, done: false }); } catch (e) { /* listener errors are not fatal */ }
+}
 
 /**
  * Singleton to get the feature extraction pipeline
  */
 async function getEmbedder() {
-    if (!embedder) {
+    if (embedder) return embedder;
+    if (!embedderPromise) {
         console.log("Loading embedding model (this may take a moment on first run)...");
+        const files = {};
         // Using a highly optimized, tiny embedding model (MiniLM)
-        embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        embedderPromise = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
             quantized: true, // Use int8 quantization for smaller size & speed
+            progress_callback: (event) => {
+                if (event.status === 'progress' && event.file) {
+                    files[event.file] = { loaded: event.loaded, total: event.total };
+                    reportProgress(files);
+                }
+            }
+        }).then(model => {
+            embedder = model;
+            if (progressListener) {
+                try { progressListener({ percent: 100, done: true }); } catch (e) { /* ignore */ }
+            }
+            console.log("Model loaded successfully!");
+            return model;
+        }).catch(error => {
+            embedderPromise = null; // allow a retry
+            throw error;
         });
-        console.log("Model loaded successfully!");
     }
-    return embedder;
+    return embedderPromise;
 }
 
 /**

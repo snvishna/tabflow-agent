@@ -15,7 +15,7 @@ node build.mjs
 cd ..
 
 # Only runtime files go into store packages (no config.json with API keys, tests, build tooling or backups)
-RUNTIME_FILES="manifest.json admin.html palette.html icons src dist"
+RUNTIME_FILES="manifest.json admin.html palette.html welcome.html icons src dist"
 
 # 3. Create Chrome ZIP
 echo "🗜️ Creating Chrome ZIP (tabflow-chrome.zip)..."

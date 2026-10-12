@@ -29143,6 +29143,7 @@ function withSettingDefaults(stored = {}) {
   s.archiveAfterDays = sanitizeArchiveDays(s.archiveAfterDays);
   s.autoArchive = Boolean(s.autoArchive);
   s.autoGroup = s.autoGroup !== false;
+  s.showTabCount = s.showTabCount !== false;
   s.neverClose = toList(s.neverClose);
   s.singleInstance = toList(s.singleInstance);
   return s;
@@ -29155,22 +29156,57 @@ var init_utils = __esm({
       autoArchive: false,
       autoGroup: true,
       neverClose: [],
-      singleInstance: ["localhost"]
+      singleInstance: ["localhost"],
+      showTabCount: true
     };
   }
 });
 
 // src/clustering.js
-async function getEmbedder() {
-  if (!embedder) {
-    console.log("Loading embedding model (this may take a moment on first run)...");
-    embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
-      quantized: true
-      // Use int8 quantization for smaller size & speed
-    });
-    console.log("Model loaded successfully!");
+function setModelProgressListener(fn) {
+  progressListener = fn;
+}
+function reportProgress(files) {
+  if (!progressListener) return;
+  const all = Object.values(files);
+  const total = all.reduce((n, f) => n + (f.total || 0), 0);
+  const loaded = all.reduce((n, f) => n + (f.loaded || 0), 0);
+  const percent = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
+  try {
+    progressListener({ percent, done: false });
+  } catch (e) {
   }
-  return embedder;
+}
+async function getEmbedder() {
+  if (embedder) return embedder;
+  if (!embedderPromise) {
+    console.log("Loading embedding model (this may take a moment on first run)...");
+    const files = {};
+    embedderPromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
+      quantized: true,
+      // Use int8 quantization for smaller size & speed
+      progress_callback: (event) => {
+        if (event.status === "progress" && event.file) {
+          files[event.file] = { loaded: event.loaded, total: event.total };
+          reportProgress(files);
+        }
+      }
+    }).then((model) => {
+      embedder = model;
+      if (progressListener) {
+        try {
+          progressListener({ percent: 100, done: true });
+        } catch (e) {
+        }
+      }
+      console.log("Model loaded successfully!");
+      return model;
+    }).catch((error) => {
+      embedderPromise = null;
+      throw error;
+    });
+  }
+  return embedderPromise;
 }
 async function embedText(text) {
   const extractor = await getEmbedder();
@@ -29252,7 +29288,7 @@ async function getSmartGroupName(clusterItemEmbeddings) {
   }
   return null;
 }
-var runtimeAPI, embedder, CATEGORIES, categoryEmbeddings;
+var runtimeAPI, embedder, embedderPromise, progressListener, CATEGORIES, categoryEmbeddings;
 var init_clustering = __esm({
   "src/clustering.js"() {
     init_transformers();
@@ -29263,6 +29299,8 @@ var init_clustering = __esm({
     runtimeAPI = typeof browser !== "undefined" ? browser : chrome;
     env.backends.onnx.wasm.wasmPaths = runtimeAPI.runtime.getURL("dist/");
     embedder = null;
+    embedderPromise = null;
+    progressListener = null;
     CATEGORIES = [
       "Finance & Banking",
       "Real Estate",
@@ -35810,6 +35848,61 @@ var init_toast = __esm({
   }
 });
 
+// src/badge.js
+async function shortcutHint() {
+  try {
+    const commands = await browserAPI3.commands.getAll();
+    const palette = commands.find((c) => c.name === "toggle-palette");
+    return palette && palette.shortcut ? ` (${palette.shortcut})` : "";
+  } catch (e) {
+    return "";
+  }
+}
+async function refreshBadge(showTabCount) {
+  if (!browserAPI3.action || Date.now() < flashUntil) return;
+  try {
+    let count = 0;
+    try {
+      const win = await browserAPI3.windows.getLastFocused({ windowTypes: ["normal"], populate: true });
+      count = (win.tabs || []).length;
+    } catch (e) {
+    }
+    await browserAPI3.action.setBadgeBackgroundColor({ color: COUNT_COLOR });
+    if (browserAPI3.action.setBadgeTextColor) await browserAPI3.action.setBadgeTextColor({ color: "#ffffff" });
+    await browserAPI3.action.setBadgeText({ text: showTabCount && count > 0 ? String(count) : "" });
+    await browserAPI3.action.setTitle({ title: `TabFlow Agent \u2014 ${count} tab${count === 1 ? "" : "s"} in this window${await shortcutHint()}` });
+  } catch (e) {
+    console.error("Badge update failed:", e);
+  }
+}
+function scheduleBadgeRefresh(getShowTabCount) {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => refreshBadge(await getShowTabCount()), 150);
+}
+async function flashBadge(text, color, getShowTabCount) {
+  if (!browserAPI3.action) return;
+  flashUntil = Date.now() + FLASH_MS;
+  try {
+    await browserAPI3.action.setBadgeBackgroundColor({ color });
+    await browserAPI3.action.setBadgeText({ text });
+  } catch (e) {
+  }
+  setTimeout(async () => {
+    flashUntil = 0;
+    refreshBadge(await getShowTabCount());
+  }, FLASH_MS);
+}
+var browserAPI3, COUNT_COLOR, FLASH_MS, flashUntil, refreshTimer;
+var init_badge = __esm({
+  "src/badge.js"() {
+    browserAPI3 = typeof browser !== "undefined" ? browser : chrome;
+    COUNT_COLOR = "#5f6368";
+    FLASH_MS = 3e3;
+    flashUntil = 0;
+    refreshTimer = null;
+  }
+});
+
 // src/background.js
 var require_background = __commonJS({
   "src/background.js"() {
@@ -35821,21 +35914,22 @@ var require_background = __commonJS({
     init_providers();
     init_undo();
     init_toast();
-    var browserAPI3 = typeof browser !== "undefined" ? browser : chrome;
+    init_badge();
+    var browserAPI4 = typeof browser !== "undefined" ? browser : chrome;
     var logMutex = Promise.resolve();
     async function addLog(type, action, status, details) {
       console.log(`[${type}] ${action} (${status}): ${details}`);
       const log = { timestamp: Date.now(), type, action, status, details };
       logMutex = logMutex.then(() => {
         return new Promise((resolve) => {
-          browserAPI3.storage.local.get(["agent_logs"], (res) => {
+          browserAPI4.storage.local.get(["agent_logs"], (res) => {
             const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1e3;
             const now = Date.now();
             let logs = res.agent_logs || [];
             logs.unshift(log);
             logs = logs.filter((l) => now - l.timestamp < SEVEN_DAYS);
             if (logs.length > 1e3) logs = logs.slice(0, 1e3);
-            browserAPI3.storage.local.set({ agent_logs: logs }, resolve);
+            browserAPI4.storage.local.set({ agent_logs: logs }, resolve);
           });
         });
       });
@@ -35843,10 +35937,10 @@ var require_background = __commonJS({
     }
     async function seedConfig() {
       try {
-        const res = await fetch(browserAPI3.runtime.getURL("config.json"));
+        const res = await fetch(browserAPI4.runtime.getURL("config.json"));
         if (!res.ok) return;
         const config = await res.json();
-        const storage = await browserAPI3.storage.local.get(["agentSettings"]);
+        const storage = await browserAPI4.storage.local.get(["agentSettings"]);
         const s = storage.agentSettings || {};
         if (!s.cognitiveKey) {
           const defaults = defaultsForKey(config.cognitiveKey);
@@ -35859,14 +35953,18 @@ var require_background = __commonJS({
             reflexUrl: config.reflexUrl || config.cognitiveUrl || defaults.url,
             reflexModel: config.reflexModel || config.cognitiveModel || defaults.model
           };
-          await browserAPI3.storage.local.set({ agentSettings: newSettings });
+          await browserAPI4.storage.local.set({ agentSettings: newSettings });
           console.log("[Setup] Seeded API keys from config.json");
         }
       } catch (e) {
       }
     }
-    browserAPI3.runtime.onInstalled.addListener(() => {
+    browserAPI4.runtime.onInstalled.addListener((details) => {
       seedConfig();
+      if (details.reason === "install") {
+        browserAPI4.tabs.create({ url: browserAPI4.runtime.getURL("welcome.html") }).catch((e) => console.error(e));
+      }
+      showTabCountSetting().then(refreshBadge);
     });
     var API_TIMEOUT_MS = 15e3;
     async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
@@ -36018,29 +36116,52 @@ var require_background = __commonJS({
         }
       }
     }
-    if (browserAPI3.action) {
-      browserAPI3.action.setBadgeBackgroundColor({ color: "#b026ff" });
-      browserAPI3.action.setBadgeText({ text: "AI" });
+    async function showTabCountSetting() {
+      return (await getSettings()).showTabCount;
+    }
+    for (const event of [browserAPI4.tabs.onCreated, browserAPI4.tabs.onRemoved, browserAPI4.tabs.onAttached, browserAPI4.tabs.onDetached, browserAPI4.windows.onFocusChanged]) {
+      event.addListener(() => scheduleBadgeRefresh(showTabCountSetting));
+    }
+    browserAPI4.runtime.onStartup.addListener(() => showTabCountSetting().then(refreshBadge));
+    async function announce(message, { undoId = null, windowId = null, badge = null } = {}) {
+      const shown = await showToast(message, { undoId, windowId });
+      if (badge) await flashBadge(badge, "#248a3d", showTabCountSetting);
+      else if (!shown && undoId) await flashBadge("\u21B6", "#0a84ff", showTabCountSetting);
+    }
+    var lastProgressSent = 0;
+    setModelProgressListener(({ percent, done }) => {
+      const now = Date.now();
+      if (!done && now - lastProgressSent < 250) return;
+      lastProgressSent = now;
+      browserAPI4.runtime.sendMessage({ action: "model_progress", percent, done }).catch(() => {
+      });
+    });
+    async function openShortcutSettings() {
+      if (browserAPI4.commands.openShortcutSettings) {
+        await browserAPI4.commands.openShortcutSettings();
+      } else {
+        await browserAPI4.tabs.create({ url: "chrome://extensions/shortcuts" });
+      }
     }
     async function getSettings() {
-      const { agentSettings } = await browserAPI3.storage.local.get(["agentSettings"]);
+      const { agentSettings } = await browserAPI4.storage.local.get(["agentSettings"]);
       return withSettingDefaults(agentSettings);
     }
     async function safeRemoveTab(tabId) {
       try {
-        await browserAPI3.tabs.remove(tabId);
+        await browserAPI4.tabs.remove(tabId);
       } catch (e) {
       }
     }
     async function safeUpdateTab(tabId, props) {
       try {
-        await browserAPI3.tabs.update(tabId, props);
+        await browserAPI4.tabs.update(tabId, props);
       } catch (e) {
       }
     }
     async function safeFocusWindow(windowId) {
       try {
-        await browserAPI3.windows.update(windowId, { focused: true });
+        await browserAPI4.windows.update(windowId, { focused: true });
       } catch (e) {
       }
     }
@@ -36048,10 +36169,10 @@ var require_background = __commonJS({
     var sessionMapMutex = Promise.resolve();
     function updateSessionMap(key, mutator) {
       const run = sessionMapMutex.then(async () => {
-        const res = await browserAPI3.storage.session.get([key]);
+        const res = await browserAPI4.storage.session.get([key]);
         const map = res[key] || {};
         const result = mutator(map);
-        await browserAPI3.storage.session.set({ [key]: map });
+        await browserAPI4.storage.session.set({ [key]: map });
         return result;
       });
       sessionMapMutex = run.catch((e) => console.error(`Updating ${key} failed:`, e));
@@ -36063,26 +36184,26 @@ var require_background = __commonJS({
     }
     async function isFreshTab(tabId) {
       await sessionMapMutex;
-      const res = await browserAPI3.storage.session.get([FRESH_TABS_KEY]);
+      const res = await browserAPI4.storage.session.get([FRESH_TABS_KEY]);
       return Boolean((res[FRESH_TABS_KEY] || {})[tabId]);
     }
     var STARTUP_GRACE_MS = 1e4;
-    browserAPI3.runtime.onStartup.addListener(() => {
-      browserAPI3.storage.session.set({ browserStartedAt: Date.now() });
+    browserAPI4.runtime.onStartup.addListener(() => {
+      browserAPI4.storage.session.set({ browserStartedAt: Date.now() });
     });
-    browserAPI3.tabs.onCreated.addListener(async (tab) => {
-      const { browserStartedAt } = await browserAPI3.storage.session.get(["browserStartedAt"]);
+    browserAPI4.tabs.onCreated.addListener(async (tab) => {
+      const { browserStartedAt } = await browserAPI4.storage.session.get(["browserStartedAt"]);
       if (browserStartedAt && Date.now() - browserStartedAt < STARTUP_GRACE_MS) return;
       updateFreshTabs((fresh) => {
         fresh[tab.id] = Date.now();
       });
     });
-    browserAPI3.tabs.onRemoved.addListener((tabId) => {
+    browserAPI4.tabs.onRemoved.addListener((tabId) => {
       updateFreshTabs((fresh) => {
         delete fresh[tabId];
       });
     });
-    browserAPI3.webNavigation.onCommitted.addListener((details) => {
+    browserAPI4.webNavigation.onCommitted.addListener((details) => {
       if (details.frameId !== 0 || !isWebUrl(details.url)) return;
       updateFreshTabs((fresh) => {
         delete fresh[details.tabId];
@@ -36091,22 +36212,22 @@ var require_background = __commonJS({
     var DEDUPE_BYPASS_KEY = "dedupeBypass";
     var DEDUPE_BYPASS_MS = 15e3;
     async function addDedupeBypass(urls) {
-      const res = await browserAPI3.storage.session.get([DEDUPE_BYPASS_KEY]);
+      const res = await browserAPI4.storage.session.get([DEDUPE_BYPASS_KEY]);
       const bypass = res[DEDUPE_BYPASS_KEY] || {};
       const now = Date.now();
       for (const [k, expiry] of Object.entries(bypass)) if (expiry < now) delete bypass[k];
       for (const u of urls) bypass[normalizeUrl(u)] = now + DEDUPE_BYPASS_MS;
-      await browserAPI3.storage.session.set({ [DEDUPE_BYPASS_KEY]: bypass });
+      await browserAPI4.storage.session.set({ [DEDUPE_BYPASS_KEY]: bypass });
     }
     async function isDedupeBypassed(url2) {
-      const res = await browserAPI3.storage.session.get([DEDUPE_BYPASS_KEY]);
+      const res = await browserAPI4.storage.session.get([DEDUPE_BYPASS_KEY]);
       const expiry = (res[DEDUPE_BYPASS_KEY] || {})[normalizeUrl(url2)];
       return Boolean(expiry && expiry > Date.now());
     }
     async function redirectToExistingTab(newTabId, existing, targetUrl, reason) {
       let newTab = null;
       try {
-        newTab = await browserAPI3.tabs.get(newTabId);
+        newTab = await browserAPI4.tabs.get(newTabId);
       } catch (e) {
       }
       if (targetUrl) await safeUpdateTab(existing.id, { url: targetUrl, active: true });
@@ -36120,25 +36241,25 @@ var require_background = __commonJS({
         tabs: [closed],
         restoreUrls: targetUrl ? [{ tabId: existing.id, url: existing.url }] : []
       });
-      await showToast(`${reason} \u2014 switched to your open tab.`, { undoId, windowId: existing.windowId });
+      await announce(`${reason} \u2014 switched to your open tab.`, { undoId, windowId: existing.windowId });
     }
     var REFLEX_CACHE_KEY = "reflexCache";
     var REFLEX_CACHE_MAX = 200;
     async function getCachedReflexDecision(cacheKey) {
-      const res = await browserAPI3.storage.session.get([REFLEX_CACHE_KEY]);
+      const res = await browserAPI4.storage.session.get([REFLEX_CACHE_KEY]);
       return (res[REFLEX_CACHE_KEY] || {})[cacheKey] || null;
     }
     async function cacheReflexDecision(cacheKey, decision) {
-      const res = await browserAPI3.storage.session.get([REFLEX_CACHE_KEY]);
+      const res = await browserAPI4.storage.session.get([REFLEX_CACHE_KEY]);
       const cache = res[REFLEX_CACHE_KEY] || {};
       cache[cacheKey] = decision;
       const keys = Object.keys(cache);
       if (keys.length > REFLEX_CACHE_MAX) {
         for (const k of keys.slice(0, keys.length - REFLEX_CACHE_MAX)) delete cache[k];
       }
-      await browserAPI3.storage.session.set({ [REFLEX_CACHE_KEY]: cache });
+      await browserAPI4.storage.session.set({ [REFLEX_CACHE_KEY]: cache });
     }
-    browserAPI3.webNavigation.onBeforeNavigate.addListener(async (details) => {
+    browserAPI4.webNavigation.onBeforeNavigate.addListener(async (details) => {
       if (details.frameId !== 0) return;
       try {
         const targetUrlStr = details.url;
@@ -36148,7 +36269,7 @@ var require_background = __commonJS({
         const targetUrl = new URL(targetUrlStr);
         const s = await getSettings();
         if (urlMatchesDomains(targetUrlStr, s.neverClose)) return;
-        const existingTabs = await browserAPI3.tabs.query({});
+        const existingTabs = await browserAPI4.tabs.query({});
         const hostMatches = existingTabs.filter((tab) => {
           if (tab.id === details.tabId) return false;
           try {
@@ -36208,7 +36329,7 @@ TARGET NEW URL: ${targetUrlStr}`;
     }
     async function planStaleTabs(query = {}) {
       const { archiveAfterDays: days, neverClose } = await getSettings();
-      const tabs = (await browserAPI3.tabs.query(query)).filter((t) => !urlMatchesDomains(t.url, neverClose));
+      const tabs = (await browserAPI4.tabs.query(query)).filter((t) => !urlMatchesDomains(t.url, neverClose));
       return { days, tabs: selectStaleTabs(tabs, Date.now(), days) };
     }
     async function archiveAndCloseTabs(tabIds, label) {
@@ -36217,7 +36338,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       for (const id of tabIds) {
         let tab;
         try {
-          tab = await browserAPI3.tabs.get(id);
+          tab = await browserAPI4.tabs.get(id);
         } catch (e) {
           continue;
         }
@@ -36227,7 +36348,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       }
       if (closed.length === 0) return { count: 0, undoId: null };
       try {
-        await browserAPI3.tabs.remove(closedIds);
+        await browserAPI4.tabs.remove(closedIds);
       } catch (e) {
       }
       const undoId = await recordUndo({ kind: "close", label, tabs: closed });
@@ -36238,28 +36359,28 @@ TARGET NEW URL: ${targetUrlStr}`;
       if (tabs.length === 0) return 0;
       const { count, undoId } = await archiveAndCloseTabs(tabs.map((t) => t.id), `Restore ${tabs.length} archived tab${tabs.length === 1 ? "" : "s"}`);
       addLog("DECISION", "Archive Stale Tabs", "success", `Archived ${count} tabs unused for more than ${days} days.`);
-      if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? "" : "s"} unused for ${days}+ days.`, { undoId });
+      if (count > 0) await announce(`Archived ${count} tab${count === 1 ? "" : "s"} unused for ${days}+ days.`, { undoId, badge: `\u2212${count}` });
       return count;
     }
     async function syncAutoArchiveAlarm(settings) {
       if (settings.autoArchive) {
-        const existing = await browserAPI3.alarms.get(AUTO_ARCHIVE_ALARM);
-        if (!existing) await browserAPI3.alarms.create(AUTO_ARCHIVE_ALARM, { periodInMinutes: 60 });
+        const existing = await browserAPI4.alarms.get(AUTO_ARCHIVE_ALARM);
+        if (!existing) await browserAPI4.alarms.create(AUTO_ARCHIVE_ALARM, { periodInMinutes: 60 });
       } else {
-        await browserAPI3.alarms.clear(AUTO_ARCHIVE_ALARM);
+        await browserAPI4.alarms.clear(AUTO_ARCHIVE_ALARM);
       }
     }
-    browserAPI3.alarms.onAlarm.addListener((alarm) => {
+    browserAPI4.alarms.onAlarm.addListener((alarm) => {
       if (alarm.name === AUTO_ARCHIVE_ALARM) {
         archiveStaleTabs({}).catch((e) => console.error("Auto-archive failed:", e));
       }
     });
     function openPalette() {
-      browserAPI3.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
+      browserAPI4.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
         if (!tabs || tabs.length === 0) {
           console.error("No active tab found to inject palette.");
-          browserAPI3.windows.create({
-            url: browserAPI3.runtime.getURL("palette.html"),
+          browserAPI4.windows.create({
+            url: browserAPI4.runtime.getURL("palette.html"),
             type: "popup",
             width: 600,
             height: 450
@@ -36271,11 +36392,11 @@ TARGET NEW URL: ${targetUrlStr}`;
           if (url2.startsWith("chrome://") || url2.startsWith("about:") || url2.startsWith("edge://") || url2.startsWith("file://")) {
             const width = 600;
             const height = 450;
-            browserAPI3.windows.getCurrent().then((win) => {
+            browserAPI4.windows.getCurrent().then((win) => {
               const left = win && win.width ? Math.round((win.width - width) / 2 + win.left) : 200;
               const top = win && win.height ? Math.round((win.height - height) / 2 + win.top) : 200;
-              browserAPI3.windows.create({
-                url: browserAPI3.runtime.getURL("palette.html"),
+              browserAPI4.windows.create({
+                url: browserAPI4.runtime.getURL("palette.html"),
                 type: "popup",
                 width,
                 height,
@@ -36283,8 +36404,8 @@ TARGET NEW URL: ${targetUrlStr}`;
                 top
               });
             }).catch((e) => {
-              browserAPI3.windows.create({
-                url: browserAPI3.runtime.getURL("palette.html"),
+              browserAPI4.windows.create({
+                url: browserAPI4.runtime.getURL("palette.html"),
                 type: "popup",
                 width,
                 height
@@ -36293,14 +36414,14 @@ TARGET NEW URL: ${targetUrlStr}`;
             return;
           }
           try {
-            await browserAPI3.scripting.executeScript({
+            await browserAPI4.scripting.executeScript({
               target: { tabId: tabs[0].id },
               files: ["src/content.js"]
             });
           } catch (err) {
             console.error("Failed to inject palette, likely restricted page:", err);
-            browserAPI3.windows.create({
-              url: browserAPI3.runtime.getURL("palette.html"),
+            browserAPI4.windows.create({
+              url: browserAPI4.runtime.getURL("palette.html"),
               type: "popup",
               width: 600,
               height: 450
@@ -36311,26 +36432,26 @@ TARGET NEW URL: ${targetUrlStr}`;
         console.error("Query active tab failed:", err);
       });
     }
-    browserAPI3.commands.onCommand.addListener((command) => {
+    browserAPI4.commands.onCommand.addListener((command) => {
       if (command === "toggle-palette") {
         openPalette();
       } else if (command === "undo-last-action") {
         undoAction().then((done) => {
-          if (!done) showToast("Nothing to undo.");
+          if (!done) announce("Nothing to undo.");
         }).catch((e) => console.error("Undo failed:", e));
       }
     });
-    if (browserAPI3.action) {
-      browserAPI3.action.onClicked.addListener(() => {
+    if (browserAPI4.action) {
+      browserAPI4.action.onClicked.addListener(() => {
         openPalette();
       });
     }
-    browserAPI3.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    browserAPI4.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === "get_all_tabs") {
         Promise.all([
-          browserAPI3.tabs.query({}),
+          browserAPI4.tabs.query({}),
           getArchivedTabs(),
-          browserAPI3.sessions ? browserAPI3.sessions.getRecentlyClosed() : Promise.resolve([])
+          browserAPI4.sessions ? browserAPI4.sessions.getRecentlyClosed() : Promise.resolve([])
         ]).then(([activeTabs, archivedTabs, closedSessions]) => {
           activeTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
           const closedTabs = [];
@@ -36350,8 +36471,8 @@ TARGET NEW URL: ${targetUrlStr}`;
         return true;
       }
       if (message.action === "switch_to_tab") {
-        browserAPI3.tabs.update(message.tabId, { active: true });
-        browserAPI3.windows.update(message.windowId, { focused: true });
+        browserAPI4.tabs.update(message.tabId, { active: true });
+        browserAPI4.windows.update(message.windowId, { focused: true });
         return false;
       }
       if (message.action === "get_settings") {
@@ -36359,20 +36480,21 @@ TARGET NEW URL: ${targetUrlStr}`;
         return true;
       }
       if (message.action === "save_settings") {
-        browserAPI3.storage.local.get(["agentSettings"]).then(async (result) => {
+        browserAPI4.storage.local.get(["agentSettings"]).then(async (result) => {
           const merged = withSettingDefaults({ ...result.agentSettings || {}, ...message.settings });
-          await browserAPI3.storage.local.set({ agentSettings: merged });
+          await browserAPI4.storage.local.set({ agentSettings: merged });
           await syncAutoArchiveAlarm(merged);
+          await refreshBadge(merged.showTabCount);
           sendResponse({ status: "success" });
         }).catch((error) => sendResponse({ status: "error", error: error.message }));
         return true;
       }
       if (message.action === "consolidate_windows") {
-        browserAPI3.tabs.query({}).then(async (tabs) => {
-          const currentWindow = await browserAPI3.windows.getCurrent();
+        browserAPI4.tabs.query({}).then(async (tabs) => {
+          const currentWindow = await browserAPI4.windows.getCurrent();
           const tabIdsToMove = tabs.filter((t) => t.windowId !== currentWindow.id).map((t) => t.id);
           if (tabIdsToMove.length > 0) {
-            await browserAPI3.tabs.move(tabIdsToMove, { windowId: currentWindow.id, index: -1 });
+            await browserAPI4.tabs.move(tabIdsToMove, { windowId: currentWindow.id, index: -1 });
           }
           sendResponse({ status: "success", moved: tabIdsToMove.length });
         });
@@ -36404,11 +36526,11 @@ TARGET NEW URL: ${targetUrlStr}`;
       if (message.action === "ungroup_all") {
         return respond(getTargetWindowId(sender).then(async (windowId) => {
           const snapshot = await snapshotGroups(windowId);
-          const grouped = (await browserAPI3.tabs.query({ windowId })).filter(isGrouped).map((t) => t.id);
-          if (grouped.length > 0 && browserAPI3.tabs.ungroup) {
-            await browserAPI3.tabs.ungroup(grouped);
+          const grouped = (await browserAPI4.tabs.query({ windowId })).filter(isGrouped).map((t) => t.id);
+          if (grouped.length > 0 && browserAPI4.tabs.ungroup) {
+            await browserAPI4.tabs.ungroup(grouped);
             const undoId = await recordUndo({ kind: "grouping", label: "Restore your tab groups", windowId, snapshot });
-            await showToast(`Ungrouped ${grouped.length} tab${grouped.length === 1 ? "" : "s"}.`, { undoId, windowId });
+            await announce(`Ungrouped ${grouped.length} tab${grouped.length === 1 ? "" : "s"}.`, { undoId, windowId });
           }
           return { ungrouped: grouped.length };
         }));
@@ -36437,12 +36559,22 @@ TARGET NEW URL: ${targetUrlStr}`;
         return respond((async () => {
           const days = await getArchiveDays();
           const { count, undoId } = await archiveAndCloseTabs(message.tabIds || [], "Restore archived tabs");
-          if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? "" : "s"} unused for ${days}+ days.`, { undoId });
+          if (count > 0) await announce(`Archived ${count} tab${count === 1 ? "" : "s"} unused for ${days}+ days.`, { undoId, badge: `\u2212${count}` });
           return { archivedCount: count, undoId };
         })());
       }
       if (message.action === "archive_stale_tabs") {
         return respond(getTargetWindowId(sender).then((windowId) => archiveStaleTabs({ windowId })).then((archivedCount) => ({ archivedCount })));
+      }
+      if (message.action === "open_shortcut_settings") {
+        return respond(openShortcutSettings().then(() => ({})));
+      }
+      if (message.action === "open_palette") {
+        openPalette();
+        return false;
+      }
+      if (message.action === "open_welcome") {
+        return respond(browserAPI4.tabs.create({ url: browserAPI4.runtime.getURL("welcome.html") }).then(() => ({})));
       }
       if (message.action === "get_undo") {
         return respond(peekUndo().then((entry) => ({ entry: entry ? { id: entry.id, label: entry.label, createdAt: entry.createdAt } : null })));
@@ -36456,7 +36588,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       if (message.action === "get_archived_tabs") {
         Promise.all([
           getArchivedTabs(),
-          browserAPI3.sessions ? browserAPI3.sessions.getRecentlyClosed() : Promise.resolve([])
+          browserAPI4.sessions ? browserAPI4.sessions.getRecentlyClosed() : Promise.resolve([])
         ]).then(([archivedTabs, closedSessions]) => {
           const closedTabs = [];
           closedSessions.forEach((session) => {
@@ -36475,14 +36607,14 @@ TARGET NEW URL: ${targetUrlStr}`;
         return true;
       }
       if (message.action === "restore_closed_tab") {
-        if (browserAPI3.sessions && message.sessionId) {
-          browserAPI3.sessions.restore(message.sessionId);
+        if (browserAPI4.sessions && message.sessionId) {
+          browserAPI4.sessions.restore(message.sessionId);
         }
         sendResponse({ status: "success" });
         return true;
       }
       if (message.action === "restore_archived_tab") {
-        browserAPI3.tabs.create({ url: message.url }).then(() => {
+        browserAPI4.tabs.create({ url: message.url }).then(() => {
           deleteArchivedTab(message.dbId);
         });
         sendResponse({ status: "success" });
@@ -36491,7 +36623,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       if (message.action === "recover_last_archived") {
         getLatestArchivedTab().then(async (tabData) => {
           if (tabData) {
-            await browserAPI3.tabs.create({ url: tabData.url });
+            await browserAPI4.tabs.create({ url: tabData.url });
             await deleteArchivedTab(tabData.id);
             sendResponse({ status: "success", restored: tabData.url });
           } else {
@@ -36511,20 +36643,20 @@ TARGET NEW URL: ${targetUrlStr}`;
     async function getTargetWindowId(sender) {
       if (sender && sender.tab && sender.tab.windowId >= 0) {
         try {
-          const win = await browserAPI3.windows.get(sender.tab.windowId);
+          const win = await browserAPI4.windows.get(sender.tab.windowId);
           if (win.type === "normal") return win.id;
         } catch (e) {
         }
       }
       try {
-        const win = await browserAPI3.windows.getLastFocused({ windowTypes: ["normal"] });
+        const win = await browserAPI4.windows.getLastFocused({ windowTypes: ["normal"] });
         return win.id;
       } catch (e) {
-        return browserAPI3.windows.WINDOW_ID_CURRENT;
+        return browserAPI4.windows.WINDOW_ID_CURRENT;
       }
     }
     async function planGrouping(windowId, mode) {
-      const tabs = await browserAPI3.tabs.query({ windowId });
+      const tabs = await browserAPI4.tabs.query({ windowId });
       let targetTabs = tabs.filter((t) => !t.pinned && isWebUrl(t.url));
       if (mode === "leaf") targetTabs = targetTabs.filter((t) => !isGrouped(t));
       const plan = { windowId, mode, groups: [], tabs: {} };
@@ -36583,40 +36715,40 @@ ${tabsJson}`);
       }
     }
     async function snapshotGroups(windowId) {
-      const tabs = await browserAPI3.tabs.query({ windowId });
-      const groups = browserAPI3.tabGroups ? await browserAPI3.tabGroups.query({ windowId }) : [];
+      const tabs = await browserAPI4.tabs.query({ windowId });
+      const groups = browserAPI4.tabGroups ? await browserAPI4.tabGroups.query({ windowId }) : [];
       return {
         tabs: tabs.map((t) => ({ id: t.id, groupId: isGrouped(t) ? t.groupId : -1 })),
         groups: groups.map((g) => ({ id: g.id, title: g.title || "", color: g.color, collapsed: Boolean(g.collapsed) }))
       };
     }
     async function restoreGroups(windowId, snapshot) {
-      const live = await browserAPI3.tabs.query({ windowId });
+      const live = await browserAPI4.tabs.query({ windowId });
       const liveIds = new Set(live.map((t) => t.id));
       const grouped = live.filter(isGrouped).map((t) => t.id);
-      if (grouped.length) await browserAPI3.tabs.ungroup(grouped);
+      if (grouped.length) await browserAPI4.tabs.ungroup(grouped);
       for (const g of snapshot.groups) {
         const tabIds = snapshot.tabs.filter((t) => t.groupId === g.id && liveIds.has(t.id)).map((t) => t.id);
         if (!tabIds.length) continue;
         try {
-          const groupId = await browserAPI3.tabs.group({ tabIds, createProperties: { windowId } });
-          await browserAPI3.tabGroups.update(groupId, { title: g.title, color: g.color, collapsed: g.collapsed });
+          const groupId = await browserAPI4.tabs.group({ tabIds, createProperties: { windowId } });
+          await browserAPI4.tabGroups.update(groupId, { title: g.title, color: g.color, collapsed: g.collapsed });
         } catch (e) {
           console.error("Restoring group failed:", e);
         }
       }
     }
     async function applyGroupPlan(plan) {
-      if (!plan || !browserAPI3.tabs.group) return { grouped: 0, undoId: null };
+      if (!plan || !browserAPI4.tabs.group) return { grouped: 0, undoId: null };
       const windowId = plan.windowId;
       const snapshot = await snapshotGroups(windowId);
-      const live = await browserAPI3.tabs.query({ windowId });
+      const live = await browserAPI4.tabs.query({ windowId });
       const liveIds = new Set(live.filter((t) => !t.pinned && isWebUrl(t.url)).map((t) => t.id));
       if (plan.mode === "force") {
         const grouped2 = live.filter(isGrouped).map((t) => t.id);
-        if (grouped2.length && browserAPI3.tabs.ungroup) await browserAPI3.tabs.ungroup(grouped2);
+        if (grouped2.length && browserAPI4.tabs.ungroup) await browserAPI4.tabs.ungroup(grouped2);
       }
-      const existing = browserAPI3.tabGroups ? await browserAPI3.tabGroups.query({ windowId }) : [];
+      const existing = browserAPI4.tabGroups ? await browserAPI4.tabGroups.query({ windowId }) : [];
       const groupByTitle = {};
       existing.forEach((g) => {
         if (g.title) groupByTitle[g.title] = g.id;
@@ -36628,12 +36760,12 @@ ${tabsJson}`);
         const title = (group.title || "").trim() || "Misc";
         try {
           if (groupByTitle[title] !== void 0) {
-            await browserAPI3.tabs.group({ groupId: groupByTitle[title], tabIds });
+            await browserAPI4.tabs.group({ groupId: groupByTitle[title], tabIds });
           } else {
-            const groupId = await browserAPI3.tabs.group({ tabIds, createProperties: { windowId } });
-            if (browserAPI3.tabGroups) {
-              await browserAPI3.tabGroups.update(groupId, { title, color: group.color || "grey" });
-              if (title === "Misc") await browserAPI3.tabGroups.move(groupId, { index: -1 });
+            const groupId = await browserAPI4.tabs.group({ tabIds, createProperties: { windowId } });
+            if (browserAPI4.tabGroups) {
+              await browserAPI4.tabGroups.update(groupId, { title, color: group.color || "grey" });
+              if (title === "Misc") await browserAPI4.tabGroups.move(groupId, { index: -1 });
             }
             groupByTitle[title] = groupId;
           }
@@ -36646,7 +36778,7 @@ ${tabsJson}`);
       if (grouped > 0) {
         undoId = await recordUndo({ kind: "grouping", label: "Restore your previous tab groups", windowId, snapshot });
         const count = plan.groups.filter((g) => g.tabIds.some((id) => liveIds.has(id))).length;
-        await showToast(`Organized ${grouped} tabs into ${count} group${count === 1 ? "" : "s"}.`, { undoId, windowId });
+        await announce(`Organized ${grouped} tabs into ${count} group${count === 1 ? "" : "s"}.`, { undoId, windowId, badge: "\u2713" });
       }
       return { grouped, undoId };
     }
@@ -36677,17 +36809,17 @@ ${tabsJson}`);
       });
       if (!wasPending) return;
       const settings = await getSettings();
-      if (!settings.autoGroup || !browserAPI3.tabGroups || !browserAPI3.tabs.group) return;
+      if (!settings.autoGroup || !browserAPI4.tabGroups || !browserAPI4.tabs.group) return;
       let tab;
       try {
-        tab = await browserAPI3.tabs.get(tabId);
+        tab = await browserAPI4.tabs.get(tabId);
       } catch (e) {
         return;
       }
       if (tab.pinned || isGrouped(tab) || !isWebUrl(tab.url)) return;
-      const groups = (await browserAPI3.tabGroups.query({ windowId: tab.windowId })).filter((g) => g.title);
+      const groups = (await browserAPI4.tabGroups.query({ windowId: tab.windowId })).filter((g) => g.title);
       if (groups.length === 0) return;
-      const windowTabs = await browserAPI3.tabs.query({ windowId: tab.windowId });
+      const windowTabs = await browserAPI4.tabs.query({ windowId: tab.windowId });
       const candidates = groups.map((g) => ({ id: g.id, title: g.title, tabs: windowTabs.filter((t) => t.groupId === g.id) })).filter((g) => g.tabs.length > 0);
       let similarities = null;
       if (!pickGroupForTab(tab, candidates)) {
@@ -36709,7 +36841,7 @@ ${tabsJson}`);
       const groupId = pickGroupForTab(tab, candidates, similarities ? (id) => similarities[id] || 0 : null);
       if (groupId === null) return;
       try {
-        await browserAPI3.tabs.group({ groupId, tabIds: [tab.id] });
+        await browserAPI4.tabs.group({ groupId, tabIds: [tab.id] });
         const group = candidates.find((g) => g.id === groupId);
         await recordUndo({ kind: "ungroup-tab", label: `Take "${tab.title || extractHost(tab.url)}" out of "${group.title}"`, tabId: tab.id });
         addLog("DECISION", "Auto-group", "success", `Added ${tab.url} to group "${group.title}".`);
@@ -36717,24 +36849,24 @@ ${tabsJson}`);
         console.error("Auto-group failed:", e);
       }
     }
-    browserAPI3.tabs.onCreated.addListener(async (tab) => {
+    browserAPI4.tabs.onCreated.addListener(async (tab) => {
       if (isGrouped(tab)) return;
-      const { browserStartedAt } = await browserAPI3.storage.session.get(["browserStartedAt"]);
+      const { browserStartedAt } = await browserAPI4.storage.session.get(["browserStartedAt"]);
       if (browserStartedAt && Date.now() - browserStartedAt < STARTUP_GRACE_MS) return;
       markPendingAutoGroup(tab.id, true).catch(() => {
       });
     });
-    browserAPI3.tabs.onRemoved.addListener((tabId) => {
+    browserAPI4.tabs.onRemoved.addListener((tabId) => {
       markPendingAutoGroup(tabId, false).catch(() => {
       });
     });
-    browserAPI3.webNavigation.onCompleted.addListener((details) => {
+    browserAPI4.webNavigation.onCompleted.addListener((details) => {
       if (details.frameId !== 0 || !isWebUrl(details.url)) return;
       autoGroupTab(details.tabId).catch((e) => console.error("Auto-group failed:", e));
     });
     async function planDuplicates(windowId) {
       const { neverClose } = await getSettings();
-      const tabs = (await browserAPI3.tabs.query({ windowId })).filter((t) => !urlMatchesDomains(t.url, neverClose));
+      const tabs = (await browserAPI4.tabs.query({ windowId })).filter((t) => !urlMatchesDomains(t.url, neverClose));
       const { toClose: exact, toKeep } = planExactDuplicates(tabs);
       const webTabs = toKeep.filter((t) => isWebUrl(t.url));
       const clusters = await clusterTabs(webTabs, 0.95, { domainBonus: 0 });
@@ -36750,7 +36882,7 @@ ${tabsJson}`);
     async function applyDuplicateClosures(tabIds) {
       const { count, undoId } = await archiveAndCloseTabs(tabIds, "Reopen closed duplicates");
       addLog("DECISION", "Deduplicate Tabs", "success", `Closed ${count} duplicate tabs (archived).`);
-      if (count > 0) await showToast(`Closed ${count} duplicate tab${count === 1 ? "" : "s"}.`, { undoId });
+      if (count > 0) await announce(`Closed ${count} duplicate tab${count === 1 ? "" : "s"}.`, { undoId, badge: `\u2212${count}` });
       return { closed: count, undoId };
     }
     async function undoAction(id) {
@@ -36760,7 +36892,7 @@ ${tabsJson}`);
         await restoreGroups(entry.windowId, entry.snapshot);
       } else if (entry.kind === "ungroup-tab") {
         try {
-          await browserAPI3.tabs.ungroup([entry.tabId]);
+          await browserAPI4.tabs.ungroup([entry.tabId]);
         } catch (e) {
         }
       } else if (entry.kind === "close") {
@@ -36770,17 +36902,17 @@ ${tabsJson}`);
         for (const t of tabs) {
           const props = { url: t.url, active: false, pinned: t.pinned };
           try {
-            await browserAPI3.windows.get(t.windowId);
+            await browserAPI4.windows.get(t.windowId);
             props.windowId = t.windowId;
             if (typeof t.index === "number") props.index = t.index;
           } catch (e) {
           }
           try {
-            const created = await browserAPI3.tabs.create(props);
+            const created = await browserAPI4.tabs.create(props);
             if (t.archivedId) await deleteArchivedTab(t.archivedId);
-            if (t.groupId >= 0 && browserAPI3.tabs.group) {
+            if (t.groupId >= 0 && browserAPI4.tabs.group) {
               try {
-                await browserAPI3.tabs.group({ groupId: t.groupId, tabIds: [created.id] });
+                await browserAPI4.tabs.group({ groupId: t.groupId, tabIds: [created.id] });
               } catch (e) {
               }
             }
@@ -36798,10 +36930,10 @@ ${tabsJson}`);
       addLog("DECISION", "Undo", "success", entry.label);
       return true;
     }
-    browserAPI3.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    browserAPI4.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === "export_backup") {
         Promise.all([
-          browserAPI3.tabs.query({}),
+          browserAPI4.tabs.query({}),
           getArchivedTabs()
         ]).then(([activeTabs, archivedTabs]) => {
           const backup = {
@@ -36821,7 +36953,7 @@ ${tabsJson}`);
         }
         if (backup && backup.activeTabs) {
           backup.activeTabs.forEach((tab) => {
-            browserAPI3.tabs.create({ url: tab.url, active: false });
+            browserAPI4.tabs.create({ url: tab.url, active: false });
           });
         }
         sendResponse({ status: "success" });

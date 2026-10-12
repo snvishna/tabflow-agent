@@ -21,6 +21,8 @@ const commands = [
     { type: 'command', title: "Archive Unused Tabs (> 3 Days)", action: "cmd_archive", icon: "📦", section: "Commands" },
     { type: 'command', title: "Recover Last Archived", action: "cmd_recover", icon: "♻️", section: "Commands" },
     { type: 'command', title: "Undo Last Action", action: "cmd_undo", icon: "↶", section: "Commands" },
+    { type: 'command', title: "Settings", action: "cmd_settings", icon: "⚙️", section: "Commands" },
+    { type: 'command', title: "Welcome, Tips & Shortcuts", action: "cmd_welcome", icon: "👋", section: "Help" },
     { type: 'command', title: "Export Backup (Tabs & Archives)", action: "cmd_export_backup", icon: "💾", section: "Backup & Restore" },
     { type: 'command', title: "Import Backup", action: "cmd_import_backup", icon: "📥", section: "Backup & Restore" }
 ];
@@ -117,9 +119,20 @@ function renderList(items) {
 
     let currentSection = null;
 
+    if (items.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty-state';
+        empty.setAttribute('role', 'presentation');
+        empty.textContent = isCommandMode ? 'No commands match.' : 'No tabs match. Type > to see commands.';
+        list.appendChild(empty);
+        input.removeAttribute('aria-activedescendant');
+        return;
+    }
+
     items.forEach((item, index) => {
         if (item.section && item.section !== currentSection) {
             const header = document.createElement('li');
+            header.setAttribute('role', 'presentation');
             header.className = 'section-header';
             header.textContent = item.section;
             list.appendChild(header);
@@ -128,20 +141,23 @@ function renderList(items) {
 
         const li = document.createElement('li');
         li.className = 'result-item';
+        li.id = `result-${index}`;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
         
         // Icon
-        if (item.type === 'command' || item.type === 'undo') {
+        // Emoji icons (commands, tabs without a favicon) render as text, favicons as images
+        const isImageIcon = item.icon && /^(https?:|data:|chrome:|chrome-extension:|moz-extension:)/.test(item.icon);
+        if (item.type === 'command' || item.type === 'undo' || (item.icon && !isImageIcon)) {
             const iconSpan = document.createElement('span');
             iconSpan.className = 'result-icon';
-            iconSpan.style.fontSize = '20px';
             iconSpan.textContent = item.icon;
-            iconSpan.style.display = 'flex';
-            iconSpan.style.alignItems = 'center';
-            iconSpan.style.justifyContent = 'center';
+            iconSpan.setAttribute('aria-hidden', 'true');
             li.appendChild(iconSpan);
         } else {
             const img = document.createElement('img');
             img.className = 'result-icon';
+            img.alt = '';
             img.src = item.icon || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
             img.onerror = () => { img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; };
             li.appendChild(img);
@@ -199,10 +215,16 @@ function updateSelection(newIndex) {
     if (newIndex < 0 || newIndex >= visibleItems.length) return;
     
     const items = list.querySelectorAll('.result-item');
-    if (items[selectedIndex]) items[selectedIndex].classList.remove('selected');
+    if (items[selectedIndex]) {
+        items[selectedIndex].classList.remove('selected');
+        items[selectedIndex].setAttribute('aria-selected', 'false');
+    }
     
     selectedIndex = newIndex;
+    if (!items[selectedIndex]) return;
     items[selectedIndex].classList.add('selected');
+    items[selectedIndex].setAttribute('aria-selected', 'true');
+    input.setAttribute('aria-activedescendant', items[selectedIndex].id);
     items[selectedIndex].scrollIntoView({ block: 'nearest' });
 }
 
@@ -214,10 +236,18 @@ function closeUI() {
     }
 }
 
+/** Shows one of the palette screens: 'search', 'settings' or 'preview' (managed by preview.js). */
+function setView(view) {
+    const isSearch = view === 'search';
+    document.getElementById('search-header').style.display = isSearch ? 'flex' : 'none';
+    list.style.display = isSearch ? 'block' : 'none';
+    document.getElementById('palette-footer').style.display = isSearch ? 'flex' : 'none';
+    document.getElementById('settings-view').style.display = view === 'settings' ? 'block' : 'none';
+    if (isSearch) input.focus();
+}
+
 function showSearchView() {
-    document.getElementById('search-header').style.display = 'flex';
-    list.style.display = 'block';
-    input.focus();
+    setView('search');
 }
 
 // Commands that change many tabs show a preview first
@@ -233,9 +263,18 @@ function executeItem(item) {
     let shouldClose = true;
 
     if (item.type === 'command' && PREVIEW_COMMANDS[item.action]) {
-        document.getElementById('search-header').style.display = 'none';
-        list.style.display = 'none';
+        setView('preview');
         openPreview(PREVIEW_COMMANDS[item.action], { onBack: showSearchView, onDone: closeUI });
+        return;
+    }
+
+    if (item.type === 'command' && item.action === 'cmd_settings') {
+        openSettings();
+        return;
+    }
+
+    if (item.type === 'command' && item.action === 'cmd_welcome') {
+        browserAPI.runtime.sendMessage({ action: 'open_welcome' }).catch(e => console.error(e)).finally(closeUI);
         return;
     }
 
@@ -421,10 +460,38 @@ window.addEventListener('message', (event) => {
 });
 
 // Settings Events
-document.getElementById('settings-trigger').addEventListener('click', () => {
-    document.getElementById('search-header').style.display = 'none';
-    document.getElementById('results-list').style.display = 'none';
-    document.getElementById('settings-view').style.display = 'block';
+document.getElementById('settings-trigger').addEventListener('click', () => openSettings());
+
+/** Lists the extension's keyboard shortcuts, flagging any the browser could not assign. */
+async function renderShortcuts() {
+    const container = document.getElementById('shortcut-list');
+    container.replaceChildren();
+    let commandsList = [];
+    try { commandsList = await browserAPI.commands.getAll(); } catch (e) { /* not available */ }
+    for (const cmd of commandsList) {
+        if (!cmd.description) continue;
+        const name = document.createElement('span');
+        name.textContent = cmd.description;
+        const keys = document.createElement('span');
+        if (cmd.shortcut) {
+            const kbd = document.createElement('kbd');
+            kbd.textContent = cmd.shortcut;
+            keys.appendChild(kbd);
+        } else {
+            keys.className = 'unset';
+            keys.textContent = 'Not set';
+        }
+        container.append(name, keys);
+    }
+}
+
+document.getElementById('btn-change-shortcuts').addEventListener('click', () => {
+    browserAPI.runtime.sendMessage({ action: 'open_shortcut_settings' }).catch(e => console.error(e)).finally(closeUI);
+});
+
+function openSettings() {
+    setView('settings');
+    renderShortcuts();
     
     // Load existing
     browserAPI.runtime.sendMessage({ action: 'get_settings' }).then(s => {
@@ -450,11 +517,12 @@ document.getElementById('settings-trigger').addEventListener('click', () => {
         document.getElementById('setting-auto-group').checked = s.autoGroup !== false;
         document.getElementById('setting-never-close').value = (s.neverClose || []).join('\n');
         document.getElementById('setting-single-instance').value = (s.singleInstance || []).join('\n');
+        document.getElementById('setting-badge-count').checked = s.showTabCount !== false;
         
         document.getElementById('advanced-toggle').checked = useAdvanced;
         document.getElementById('advanced-settings').style.display = useAdvanced ? 'block' : 'none';
     });
-});
+}
 
 document.getElementById('advanced-toggle').addEventListener('change', (e) => {
     document.getElementById('advanced-settings').style.display = e.target.checked ? 'block' : 'none';
@@ -495,12 +563,7 @@ document.getElementById('setting-reflex-key').addEventListener('input', (e) => {
     autoPopulateFields(key, refUrl, refModel);
 });
 
-document.getElementById('btn-cancel-settings').addEventListener('click', () => {
-    document.getElementById('settings-view').style.display = 'none';
-    document.getElementById('search-header').style.display = 'flex';
-    document.getElementById('results-list').style.display = 'block';
-    input.focus();
-});
+document.getElementById('btn-cancel-settings').addEventListener('click', () => setView('search'));
 
 document.getElementById('btn-save-settings').addEventListener('click', () => {
     const btn = document.getElementById('btn-save-settings');
@@ -537,6 +600,7 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
     // Domain lists are cleaned up by the background (see withSettingDefaults)
     s.neverClose = document.getElementById('setting-never-close').value;
     s.singleInstance = document.getElementById('setting-single-instance').value;
+    s.showTabCount = document.getElementById('setting-badge-count').checked;
     
     browserAPI.runtime.sendMessage({ action: 'save_settings', settings: s }).then(() => {
         btn.textContent = "Saved ✓";

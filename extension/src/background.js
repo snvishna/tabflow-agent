@@ -1,4 +1,4 @@
-import { clusterTabs, getSmartGroupName, embedText } from './clustering.js';
+import { clusterTabs, getSmartGroupName, embedText, setModelProgressListener } from './clustering.js';
 import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, bulkImportArchivedTabs } from './db.js';
 import { PROMPTS } from './prompts.js';
 import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, withSettingDefaults, urlMatchesDomains, cosineSimilarity } from './utils.js';
@@ -6,6 +6,7 @@ import { pickGroupForTab } from './autogroup.js';
 import { defaultsForKey } from './providers.js';
 import { recordUndo, peekUndo, takeUndo, describeClosedTab } from './undo.js';
 import { showToast } from './toast.js';
+import { refreshBadge, scheduleBadgeRefresh, flashBadge } from './badge.js';
 
 // Unified browser API access
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
@@ -62,8 +63,13 @@ async function seedConfig() {
     } catch (e) { /* no config.json in store builds */ }
 }
 
-browserAPI.runtime.onInstalled.addListener(() => {
+browserAPI.runtime.onInstalled.addListener((details) => {
     seedConfig();
+    // First run: show the welcome page with the shortcut and a guided first organize
+    if (details.reason === 'install') {
+        browserAPI.tabs.create({ url: browserAPI.runtime.getURL('welcome.html') }).catch(e => console.error(e));
+    }
+    showTabCountSetting().then(refreshBadge);
 });
 
 // Abort slow AI calls so a new tab is never left waiting on the network
@@ -242,10 +248,41 @@ async function callAgentAPI(baseUrl, apiKey, model, systemPrompt, userPrompt) {
     }
 }
 
-// Set a stylish badge on the extension icon
-if (browserAPI.action) {
-    browserAPI.action.setBadgeBackgroundColor({ color: '#b026ff' }); // Neon purple
-    browserAPI.action.setBadgeText({ text: 'AI' });
+// --- Toolbar badge & feedback ---
+async function showTabCountSetting() {
+    return (await getSettings()).showTabCount;
+}
+
+for (const event of [browserAPI.tabs.onCreated, browserAPI.tabs.onRemoved, browserAPI.tabs.onAttached, browserAPI.tabs.onDetached, browserAPI.windows.onFocusChanged]) {
+    event.addListener(() => scheduleBadgeRefresh(showTabCountSetting));
+}
+browserAPI.runtime.onStartup.addListener(() => showTabCountSetting().then(refreshBadge));
+
+/**
+ * Tells the user what just happened: an in-page toast with Undo, plus a short badge flash.
+ * On pages that block the toast (browser pages) the badge shows ↶ so Undo is discoverable.
+ */
+async function announce(message, { undoId = null, windowId = null, badge = null } = {}) {
+    const shown = await showToast(message, { undoId, windowId });
+    if (badge) await flashBadge(badge, '#248a3d', showTabCountSetting);
+    else if (!shown && undoId) await flashBadge('↶', '#0a84ff', showTabCountSetting);
+}
+
+// Share model download progress with any open TabFlow page (palette, welcome)
+let lastProgressSent = 0;
+setModelProgressListener(({ percent, done }) => {
+    const now = Date.now();
+    if (!done && now - lastProgressSent < 250) return;
+    lastProgressSent = now;
+    browserAPI.runtime.sendMessage({ action: 'model_progress', percent, done }).catch(() => { /* no page listening */ });
+});
+
+async function openShortcutSettings() {
+    if (browserAPI.commands.openShortcutSettings) {
+        await browserAPI.commands.openShortcutSettings(); // Firefox
+    } else {
+        await browserAPI.tabs.create({ url: 'chrome://extensions/shortcuts' });
+    }
 }
 
 // --- Smart Tab Reuse & Deduplication Router ---
@@ -356,7 +393,7 @@ async function redirectToExistingTab(newTabId, existing, targetUrl, reason) {
         tabs: [closed],
         restoreUrls: targetUrl ? [{ tabId: existing.id, url: existing.url }] : []
     });
-    await showToast(`${reason} — switched to your open tab.`, { undoId, windowId: existing.windowId });
+    await announce(`${reason} — switched to your open tab.`, { undoId, windowId: existing.windowId });
 }
 
 // Cache AI duplicate decisions so the same pair of pages never costs a second API call
@@ -503,7 +540,7 @@ async function archiveStaleTabs(query = {}) {
     if (tabs.length === 0) return 0;
     const { count, undoId } = await archiveAndCloseTabs(tabs.map(t => t.id), `Restore ${tabs.length} archived tab${tabs.length === 1 ? '' : 's'}`);
     addLog('DECISION', 'Archive Stale Tabs', 'success', `Archived ${count} tabs unused for more than ${days} days.`);
-    if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId });
+    if (count > 0) await announce(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId, badge: `−${count}` });
     return count;
 }
 
@@ -591,7 +628,7 @@ browserAPI.commands.onCommand.addListener((command) => {
         openPalette();
     } else if (command === "undo-last-action") {
         undoAction().then(done => {
-            if (!done) showToast('Nothing to undo.');
+            if (!done) announce('Nothing to undo.');
         }).catch(e => console.error("Undo failed:", e));
     }
 });
@@ -644,6 +681,7 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const merged = withSettingDefaults({ ...(result.agentSettings || {}), ...message.settings });
             await browserAPI.storage.local.set({ agentSettings: merged });
             await syncAutoArchiveAlarm(merged);
+            await refreshBadge(merged.showTabCount);
             sendResponse({ status: 'success' });
         }).catch(error => sendResponse({ status: 'error', error: error.message }));
         return true;
@@ -694,7 +732,7 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (grouped.length > 0 && browserAPI.tabs.ungroup) {
                 await browserAPI.tabs.ungroup(grouped);
                 const undoId = await recordUndo({ kind: 'grouping', label: 'Restore your tab groups', windowId, snapshot });
-                await showToast(`Ungrouped ${grouped.length} tab${grouped.length === 1 ? '' : 's'}.`, { undoId, windowId });
+                await announce(`Ungrouped ${grouped.length} tab${grouped.length === 1 ? '' : 's'}.`, { undoId, windowId });
             }
             return { ungrouped: grouped.length };
         }));
@@ -723,12 +761,22 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return respond((async () => {
             const days = await getArchiveDays();
             const { count, undoId } = await archiveAndCloseTabs(message.tabIds || [], 'Restore archived tabs');
-            if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId });
+            if (count > 0) await announce(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId, badge: `−${count}` });
             return { archivedCount: count, undoId };
         })());
     }
     if (message.action === 'archive_stale_tabs') {
         return respond(getTargetWindowId(sender).then(windowId => archiveStaleTabs({ windowId })).then(archivedCount => ({ archivedCount })));
+    }
+    if (message.action === 'open_shortcut_settings') {
+        return respond(openShortcutSettings().then(() => ({})));
+    }
+    if (message.action === 'open_palette') {
+        openPalette();
+        return false;
+    }
+    if (message.action === 'open_welcome') {
+        return respond(browserAPI.tabs.create({ url: browserAPI.runtime.getURL('welcome.html') }).then(() => ({})));
     }
     if (message.action === 'get_undo') {
         return respond(peekUndo().then(entry => ({ entry: entry ? { id: entry.id, label: entry.label, createdAt: entry.createdAt } : null })));
@@ -962,7 +1010,7 @@ async function applyGroupPlan(plan) {
     if (grouped > 0) {
         undoId = await recordUndo({ kind: 'grouping', label: 'Restore your previous tab groups', windowId, snapshot });
         const count = plan.groups.filter(g => g.tabIds.some(id => liveIds.has(id))).length;
-        await showToast(`Organized ${grouped} tabs into ${count} group${count === 1 ? '' : 's'}.`, { undoId, windowId });
+        await announce(`Organized ${grouped} tabs into ${count} group${count === 1 ? '' : 's'}.`, { undoId, windowId, badge: '✓' });
     }
     return { grouped, undoId };
 }
@@ -1083,7 +1131,7 @@ async function planDuplicates(windowId) {
 async function applyDuplicateClosures(tabIds) {
     const { count, undoId } = await archiveAndCloseTabs(tabIds, 'Reopen closed duplicates');
     addLog('DECISION', 'Deduplicate Tabs', 'success', `Closed ${count} duplicate tabs (archived).`);
-    if (count > 0) await showToast(`Closed ${count} duplicate tab${count === 1 ? '' : 's'}.`, { undoId });
+    if (count > 0) await announce(`Closed ${count} duplicate tab${count === 1 ? '' : 's'}.`, { undoId, badge: `−${count}` });
     return { closed: count, undoId };
 }
 

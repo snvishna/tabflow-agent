@@ -8,7 +8,7 @@ function renderLogs() {
         const logs = res.agent_logs || [];
         container.innerHTML = '';
         if (logs.length === 0) {
-            container.innerHTML = '<div style="color: #8e8e93;">No logs available. Make an API call or open some tabs!</div>';
+            container.innerHTML = '<div class="empty">No activity yet. TabFlow logs what it does here, for example when it closes a duplicate tab.</div>';
             return;
         }
 
@@ -19,7 +19,7 @@ function renderLogs() {
         });
 
         if (filteredLogs.length === 0) {
-            container.innerHTML = '<div style="color: #8e8e93;">No matching logs found.</div>';
+            container.innerHTML = '<div class="empty">No matching logs found.</div>';
             return;
         }
 

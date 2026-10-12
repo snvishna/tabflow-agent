@@ -1,0 +1,106 @@
+/* Shared design tokens for every TabFlow page. Follows the system light/dark setting. */
+:root {
+    color-scheme: light dark;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --page-bg: #f5f5f7;
+    --surface: rgba(255, 255, 255, 0.86);
+    --surface-solid: #ffffff;
+    --surface-raised: rgba(0, 0, 0, 0.035);
+    --text: #1d1d1f;
+    --text-2: rgba(0, 0, 0, 0.62);
+    --text-3: rgba(0, 0, 0, 0.42);
+    --border: rgba(0, 0, 0, 0.1);
+    --hover: rgba(0, 0, 0, 0.05);
+    --field: rgba(0, 0, 0, 0.04);
+    --field-focus: #ffffff;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --accent-soft: rgba(0, 113, 227, 0.14);
+    --on-accent: #ffffff;
+    --selected: #0071e3;
+    --success: #248a3d;
+    --warning: #b25000;
+    --danger: #d70015;
+    --link: #0066cc;
+    --shadow: 0 30px 60px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
+    --radius: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --page-bg: #1c1c1e;
+        --surface: rgba(28, 28, 30, 0.86);
+        --surface-solid: #2c2c2e;
+        --surface-raised: rgba(255, 255, 255, 0.05);
+        --text: #f5f5f7;
+        --text-2: rgba(255, 255, 255, 0.62);
+        --text-3: rgba(255, 255, 255, 0.4);
+        --border: rgba(255, 255, 255, 0.1);
+        --hover: rgba(255, 255, 255, 0.07);
+        --field: rgba(0, 0, 0, 0.25);
+        --field-focus: rgba(0, 0, 0, 0.4);
+        --accent: #0a84ff;
+        --accent-hover: #3395ff;
+        --accent-soft: rgba(10, 132, 255, 0.22);
+        --selected: #0a84ff;
+        --success: #32d74b;
+        --warning: #ff9f0a;
+        --danger: #ff453a;
+        --link: #5ac8fa;
+        --shadow: 0 30px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    }
+}
+
+/* Elements with display rules must still disappear when hidden */
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+kbd {
+    font: 600 12px/1 var(--font);
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.btn {
+    padding: 9px 16px;
+    border-radius: 8px;
+    font: 600 14px/1.2 var(--font);
+    cursor: pointer;
+    border: none;
+    transition: background 0.15s ease, transform 0.05s ease;
+}
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-secondary { background: var(--hover); color: var(--text); }
+.btn-secondary:hover:not(:disabled) { background: var(--border); }
+
+.progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+}
+.progress > span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}

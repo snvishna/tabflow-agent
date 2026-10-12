@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Welcome to TabFlow Agent</title>
+    <link rel="icon" href="icons/icon-48.png">
+    <link rel="stylesheet" href="src/theme.css">
+    <link rel="stylesheet" href="src/preview.css">
+    <link rel="stylesheet" href="src/welcome.css">
+</head>
+<body>
+    <main>
+        <header class="hero">
+            <img src="icons/icon-128.png" alt="" width="72" height="72">
+            <div>
+                <h1>TabFlow Agent is ready</h1>
+                <p>Your tabs, organized as you browse. Everything runs on this device unless you choose to add your own AI key.</p>
+            </div>
+        </header>
+
+        <section class="card" aria-labelledby="step-open">
+            <span class="step">1</span>
+            <div class="card-body">
+                <h2 id="step-open">Open the command palette</h2>
+                <p>Press <span id="palette-shortcut"><kbd>…</kbd></span> on any page, or click the TabFlow icon in your toolbar. Search every open, closed and archived tab, or type <kbd>&gt;</kbd> for commands.</p>
+                <p id="shortcut-warning" class="warning" hidden>Your browser could not set this shortcut, usually because another app already uses it. Choose a different one below.</p>
+                <p class="hint" id="pin-hint">Tip: pin TabFlow to the toolbar from the extensions (puzzle piece) menu so it is always one click away.</p>
+                <div class="row">
+                    <button type="button" class="btn btn-primary" id="btn-open-palette">Open the palette</button>
+                    <button type="button" class="btn btn-secondary" id="btn-shortcuts">Change shortcuts</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="step-try">
+            <span class="step">2</span>
+            <div class="card-body">
+                <h2 id="step-try">Organize this window</h2>
+                <p>See how TabFlow would group the tabs in this window. Nothing changes until you apply, and you can undo it afterwards.</p>
+                <div class="row" id="try-actions">
+                    <button type="button" class="btn btn-primary" id="btn-try-organize">Preview groups</button>
+                    <button type="button" class="btn btn-secondary" id="btn-try-dedupe">Find duplicate tabs</button>
+                </div>
+                <div id="try-result-row" class="row result-row" hidden>
+                    <p id="try-result" class="success" role="status"></p>
+                    <button type="button" class="btn btn-secondary" id="btn-try-undo">Undo</button>
+                </div>
+
+                <div id="preview-view" class="embedded" hidden>
+                    <div id="preview-header">
+                        <div id="preview-title" role="status" aria-live="polite"></div>
+                        <div id="preview-subtitle"></div>
+                        <div id="model-progress" class="progress" hidden><span></span></div>
+                    </div>
+                    <div id="preview-body"></div>
+                    <div id="preview-actions">
+                        <span class="preview-hint"><kbd>Enter</kbd> apply · <kbd>Esc</kbd> back</span>
+                        <div>
+                            <button id="btn-preview-cancel" type="button" class="btn btn-secondary">Back</button>
+                            <button id="btn-preview-apply" type="button" class="btn btn-primary" disabled>Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="step-auto">
+            <span class="step">3</span>
+            <div class="card-body">
+                <h2 id="step-auto">Then just browse</h2>
+                <ul class="features">
+                    <li><strong>No more duplicates.</strong> Open a page you already have open and TabFlow switches to that tab instead.</li>
+                    <li><strong>Tabs find their group.</strong> New tabs join a matching group, by site or by topic.</li>
+                    <li><strong>Undo anything.</strong> Every change shows an Undo button, or press <span id="undo-shortcut"><kbd>Alt+Shift+U</kbd></span>.</li>
+                    <li><strong>Nothing is lost.</strong> Tabs TabFlow closes are archived and stay searchable for 90 days.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="card subtle" aria-labelledby="privacy">
+            <div class="card-body">
+                <h2 id="privacy">Private by default</h2>
+                <p>Grouping and duplicate detection use a small AI model that runs in your browser. Tab titles and addresses only leave your device if you add your own Claude, OpenAI or Gemini key in Settings, and then only go to that provider.</p>
+            </div>
+        </section>
+    </main>
+    <script type="module" src="src/welcome.js"></script>
+</body>
+</html>
