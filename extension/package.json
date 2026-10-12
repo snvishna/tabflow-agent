@@ -1,11 +1,12 @@
 {
   "name": "extension",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "",
   "main": "background.js",
   "scripts": {
     "build": "node build.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "node e2e/run.mjs"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "puppeteer-core": "^24.0.0"
   }
 }

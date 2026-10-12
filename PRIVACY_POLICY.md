@@ -1,6 +1,6 @@
 # Privacy Policy for TabFlow Agent
 
-**Effective Date:** October 4, 2026
+**Effective Date:** October 12, 2026
 
 This Privacy Policy describes how TabFlow Agent ("we", "our", or "the extension") handles your data. We are committed to protecting your privacy and being fully transparent about how data is processed by the extension.
 
@@ -11,12 +11,19 @@ TabFlow Agent operates primarily as a local application within your browser.
 ### A. Web Browsing Data
 To detect duplicate tabs and categorize them into semantic groups, the extension reads the **URLs and Titles** of your currently open tabs and newly navigated pages. 
 
-### B. Authentication Information
+### B. Tab Archive and Activity Log (stored on your device)
+- **Archive:** when TabFlow closes a tab for you (closing duplicates or archiving unused tabs), it saves that tab's URL, title and icon address in your browser's local database so you can search and restore it. Archived entries are deleted automatically after 90 days.
+- **Activity log:** TabFlow keeps a log of its own actions (for example "closed 3 duplicate tabs") for 7 days so you can see what it did. You can clear it from the Activity Log page.
+- **Undo history:** the last few actions are kept in temporary browser memory so you can undo them, and are cleared when the browser closes.
+
+None of this leaves your device.
+
+### C. Authentication Information
 To utilize advanced AI features, you may optionally provide API keys (e.g., Google Gemini, OpenAI, Anthropic, or TypeSafe). These API keys are **stored securely and exclusively in your browser's local storage**.
 
 ## 2. How Your Data is Used
 
-- **Local Deduplication:** Basic duplicate detection is handled entirely locally on your machine without transmitting any data.
+- **Local Deduplication and Grouping:** Duplicate detection and grouping run entirely on your device. The on-device AI model (an open-source text-embedding model) is downloaded once from Hugging Face (huggingface.co) the first time it is needed and then cached by your browser. This download does not include any of your tab data.
 - **AI Processing (Remote):** If you configure the Cognitive Engine or Reflex Engine to use a remote AI provider, the extension will securely transmit the required tab URLs and titles directly to the API endpoint you specified (e.g., Google, OpenAI). 
 - **No Extraneous Usage:** We do not use your data for advertising, creditworthiness, lending, or any purpose other than providing the tab management features of the extension.
 
@@ -36,7 +43,7 @@ All configurations, including your API keys and local AI embeddings, are stored 
 
 Because we do not store your data on our servers, you have total control over your data:
 - **Revoke Access:** You can clear your API keys from the extension's Advanced Settings at any time to immediately halt all remote data transmission.
-- **Data Deletion:** Uninstalling the extension will automatically wipe all locally stored settings, API keys, and cached embeddings from your browser.
+- **Data Deletion:** Uninstalling the extension will automatically wipe all locally stored settings, API keys, the tab archive, the activity log and cached embeddings from your browser.
 
 ## 6. Changes to this Privacy Policy
 

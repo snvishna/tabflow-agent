@@ -10,30 +10,32 @@
 Our extension is fully customizable to your privacy, cost, and performance needs:
 
 **1. The Free Tier (Zero-Configuration, 100% Local)**
-Out of the box, the extension runs highly optimized heuristic algorithms locally in your browser. Your tabs never leave your machine unless you provide an API key.
-- **Reflex Deduplication**: Instant exact-match URL routing and Single-Instance Domain fallback (e.g. `localhost`, `internal.corp`).
-- **Mathematical Grouping**: Local TF-IDF text embedding clustering algorithms fallback for semantic grouping.
+Out of the box, everything runs locally in your browser. Your tabs never leave your machine unless you provide an API key.
+- **Reflex Deduplication**: Instant exact-match URL routing for new tabs, plus your "one tab per site" list (e.g. `localhost`).
+- **On-device AI Grouping**: A small open-source text-embedding model (MiniLM, downloaded once and cached) clusters tabs by meaning and names the groups.
 
 **2. The Pro Tier (Bring Your Own API Key)**
 Plug in your API keys (Anthropic Claude, OpenAI, Groq, TypeSafe Jev) to unlock true Agentic capabilities:
 - **The Reflex Engine**: Intercept clicks in real-time. It semantically understands the difference between comparing two Amazon products (opens new tabs) vs. clicking a dashboard link twice (refreshes existing tab). Use a low-latency endpoint like TypeSafe `jev-latest` or Groq `llama-3` for ~10ms execution!
-- **The Cognitive Engine**: Use a heavy generative model (like Claude 3.5 Sonnet or GPT-4o) to group chaotic tabs into premium, logically named workspaces (e.g., "Frontend Development", "Financial Planning").
+- **The Cognitive Engine**: Use a stronger generative model (like Claude Sonnet or GPT-4.1) to group chaotic tabs into premium, logically named workspaces (e.g., "Frontend Development", "Financial Planning").
 *(Note: You can split these engines in the UI! Use Groq for cheap real-time deduplication, and Anthropic for deep semantic grouping!)*
 
-### 🕰️ The 90-Day Infinite Memory & Admin Console
-TabFlow Agent acts as a rolling black box for your browser. 
-- **Admin Console**: Click `⚙️ Settings -> Admin Console` to access a highly detailed System Log with real-time fuzzy search. It tracks exact token consumption, model confidence scores, and all routing decisions. 
-- **90-Day Storage**: Silently tracks and logs every tab you open and close into a highly compressed, locally encrypted IndexedDB, auto-pruned to prevent bloat.
+### 🕰️ The 90-Day Archive & Activity Log
+- **Activity Log**: Click `⚙️ Settings -> Activity Log` to see every decision TabFlow made in the last 7 days, with search. With an API key it also shows token usage and model confidence.
+- **90-Day Archive**: Tabs TabFlow closes for you (duplicates, archived tabs) are saved to a local IndexedDB so you can search and restore them; entries older than 90 days are pruned automatically.
 - **God-Mode Export**: Dump your entire active and historical lifecycle into a single JSON file.
 
 ---
 
 ## ✨ Features
 
-- **🧠 System 1 Deduplication**: Prevents you from opening 5 identical Jira or Slack tabs. Intelligently routes you to existing tabs.
-- **🌱 System 2 Grouping**: Organizes chaos into structured workspaces.
-- **🔍 Glassmorphism Command Palette**: Hit `Cmd+Shift+Space` to instantly search your active and historical lifecycle.
-- **📦 90-Day Auto-Archiving**: Securely banishes unused tabs to local storage.
+- **🧠 No duplicate tabs**: open a page that is already open and TabFlow switches to the existing tab, with an Undo notice. Only new tabs are affected; your browsing inside a tab is never interrupted.
+- **🌱 Grouping with preview**: "Organize All Tabs" proposes named groups; rename them, then apply. New tabs join a matching group automatically.
+- **↶ Undo anything**: every action can be undone from the notice, the palette, or `Alt+Shift+U`.
+- **🔍 Command palette**: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on Mac) searches open, recently closed and archived tabs.
+- **📦 Archiving**: archive tabs unused for N days (you choose), manually or automatically; they stay searchable for 90 days.
+- **📏 Site rules**: sites TabFlow must never close, and sites that should only ever have one tab.
+- **👋 Welcome page, tab-count badge, light & dark theme.**
 
 ---
 
@@ -63,26 +65,22 @@ npm run build
 ---
 
 ## ⌨️ Shortcuts & Commands
-- **Open Palette**: `Cmd+Shift+Space` (Mac) or `Ctrl+Shift+Space` (Windows/Linux)
-- **Click the Extension Icon** in your browser toolbar to open the palette!
-- *Note: Customize this shortcut natively in your browser at `chrome://extensions/shortcuts` or `about:addons`.*
+- **Open Palette**: `Cmd+Shift+Space` (Mac) or `Ctrl+Shift+Space` (Windows/Linux), or click the toolbar icon.
+- **Undo Last Action**: `Alt+Shift+U`.
+- Change shortcuts in the palette under **Settings → Toolbar & Shortcuts**, or at `chrome://extensions/shortcuts` / Firefox's **Manage Extension Shortcuts**.
 
-Inside the palette, type `>` to access AI commands:
-- `✨ Organize Tabs (AI Magic)`
-- `🌱 Organize Ungrouped Tabs`
-- `💥 Ungroup All Tabs`
-- `🗂️ Consolidate All Windows`
-- `📦 Archive Unused Tabs (> 3 Days)`
-- `♻️ Recover Last Archived`
-- `🔍 Search Archives & Closed Tabs`
-- `💾 Export Backup (Tabs & Archives)`
-- `📥 Import Backup`
+Inside the palette, type `>` for commands:
+- `✨ Organize All Tabs (AI Magic)` and `🌱 Organize Ungrouped Tabs` (with preview)
+- `🧹 Close Duplicate Tabs` (with preview)
+- `📦 Archive Unused Tabs` (with preview; the number of days is a setting)
+- `💥 Ungroup All Tabs`, `🗂️ Consolidate All Windows`, `♻️ Recover Last Archived`, `↶ Undo Last Action`
+- `💾 Export Backup` / `📥 Import Backup`, `⚙️ Settings`, `👋 Welcome, Tips & Shortcuts`
 
 ---
 
 ## 🛠️ Architecture & Development
 Built with a highly scalable, privacy-centric architecture:
-- **Frontend**: Vanilla JS, HTML/CSS (Glassmorphism design), fully MV3 compliant without unsafe WebAssembly or remote code execution.
+- **Frontend**: Vanilla JS, HTML/CSS (Glassmorphism design, light and dark), fully MV3 compliant with no remote code: the WebAssembly AI runtime is bundled.
 - **Background Agent**: Event-driven background service worker that asynchronously pipes DOM actions through your chosen LLM endpoints.
 - **Storage**: Native IndexedDB via `Dexie.js` for limitless, zero-setup local archiving.
 - **Testing**: `vitest` for blazing-fast unit testing of clustering logic.
@@ -90,8 +88,16 @@ Built with a highly scalable, privacy-centric architecture:
 ### Running Tests
 ```bash
 cd extension
-npm run test
+npm run test                                   # unit tests (vitest)
+CHROME_BIN=... FF_BIN=... npm run test:e2e     # installs the packed ZIPs in Chromium and Firefox
 ```
+See `extension/e2e/README.md`. Run the end-to-end suites before every store submission.
+
+### Packaging for the stores
+```bash
+bash scripts/pack.sh   # tabflow-chrome.zip, tabflow-firefox.zip, tabflow-source.zip
+```
+Store listing details live in `CHROMEWEBSTORE.md`, `FIREFOX_ADDONS.md` and `MICROSOFT_EDGE.md`; screenshots are in `store-assets/`.
 
 ## 📜 License
 MIT License

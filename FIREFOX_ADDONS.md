@@ -1,5 +1,31 @@
 # Firefox Add-ons (AMO) Publishing Guide
 
+## Updating the live listing to 1.1.0
+
+TabFlow Agent 1.0.0 is live on AMO (https://addons.mozilla.org/addon/tabflow-agent/). To ship 1.1.0:
+
+1. `bash scripts/pack.sh` from the repo root (and `npm run test:e2e` in `extension/` with `FF_BIN` set).
+2. AMO Developer Hub → TabFlow Agent → **Upload New Version** → upload `tabflow-firefox.zip`.
+3. When asked whether the add-on uses a build step, answer **Yes** and upload `tabflow-source.zip`.
+4. Paste the release notes and reviewer notes below.
+
+**Release notes (1.1.0)**
+> - Undo for everything: closing duplicates, archiving, organizing and switching to an already-open tab can all be undone (notice, palette, or Alt+Shift+U).
+> - Preview before applying: see proposed groups (and rename them) or the tabs that would be closed before anything changes.
+> - Duplicate handling now only applies to newly opened tabs and never closes different pages on the same site; closed duplicates are archived.
+> - New tabs join a matching tab group automatically (can be turned off).
+> - Site rules: sites to never close, and sites to keep to one tab.
+> - Choose after how many days unused tabs are archived, with optional automatic archiving.
+> - Welcome page, tab count on the toolbar icon, light and dark theme, download progress for the on-device AI model.
+> - The on-device AI runtime is now bundled instead of loaded from a CDN.
+
+**Notes to reviewer (1.1.0)**
+> Build from the source ZIP with Node.js 22 and npm 10+: `cd extension && npm ci && node build.mjs`.
+> This bundles `src/background.js` (and its imports: Dexie, @xenova/transformers) into `dist/background.js` with esbuild, and copies the ONNX Runtime WebAssembly files `ort-wasm.wasm` and `ort-wasm-simd.wasm` from `node_modules/@xenova/transformers/dist/` into `dist/`. All other files (`src/*.js`, `*.html`, `src/*.css`) are shipped unmodified.
+> `build.mjs` replaces two `eval`/`new Function` patterns in the bundled dependencies with safe equivalents, because they are not allowed in MV3.
+> No remote code is loaded. The only network requests are: the weights of the open-source `Xenova/all-MiniLM-L6-v2` text-embedding model from huggingface.co on first use (data, cached by the browser), and, only if the user enters their own API key, the AI provider they chose.
+> Test without any account: open https://example.com in two new tabs (the second switches to the first, with an Undo notice), press Ctrl+Shift+Space to open the palette, and type > for commands.
+
 Publishing TabFlow Agent to the Mozilla Add-ons (AMO) store requires a slightly different process than the Chrome Web Store. Fortunately, the codebase is already compatible out-of-the-box (our `manifest.json` includes the required `browser_specific_settings.gecko.id` property).
 
 ## 1. Prerequisites
@@ -26,8 +52,7 @@ Unlike Google, Mozilla strictly enforces open-source verification for any extens
 5. **Upload the Source Code ZIP** in the specific field provided for "Source Code" during the submission wizard.
 6. Provide build instructions in the "Notes to Reviewer" field.
    
-   **Example Reviewer Note:**
-   > "To build this extension from the provided source code, run `npm install` and then `node build.mjs`. The compiled output will be generated for inspection. This extension uses standard Manifest V3."
+   Use the reviewer notes from "Updating the live listing" above.
 
 ## 4. Store Listing Differences from Chrome
 
