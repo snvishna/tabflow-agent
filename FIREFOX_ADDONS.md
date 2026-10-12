@@ -9,6 +9,13 @@ TabFlow Agent 1.0.0 is live on AMO (https://addons.mozilla.org/addon/tabflow-age
 3. When asked whether the add-on uses a build step, answer **Yes** and upload `tabflow-source.zip`.
 4. Paste the release notes and reviewer notes below.
 
+**Listing (Edit Product Page → Describe Add-on)**: update to match 1.1.0. AMO renders a subset of Markdown/HTML.
+- Summary (max 250 characters):
+  > Stops duplicate tabs, groups related tabs by topic, and finds any open, closed or archived tab from one shortcut. Runs on a private on-device AI model, with optional Claude, OpenAI or Gemini keys. Undo for everything.
+- Description: the "Detailed Description" from `CHROMEWEBSTORE.md`.
+- Categories: Tabs, Search Tools. Homepage: https://snvishna.github.io/tabflow-agent/. Support: https://github.com/snvishna/tabflow-agent/issues
+- Screenshots: `store-assets/1-5*.png` with the captions in `CHROMEWEBSTORE.md`.
+
 **Release notes (1.1.0)**
 > - Undo for everything: closing duplicates, archiving, organizing and switching to an already-open tab can all be undone (notice, palette, or Alt+Shift+U).
 > - Preview before applying: see proposed groups (and rename them) or the tabs that would be closed before anything changes.

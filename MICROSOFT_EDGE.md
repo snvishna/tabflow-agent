@@ -1,49 +1,43 @@
 # Publishing TabFlow Agent to Microsoft Edge Add-ons
 
-Publishing to Microsoft Edge is very similar to the Chrome Web Store, as Edge is Chromium-based. It requires the exact same Manifest V3 configuration as Chrome (using `service_worker`), meaning you will use the `tabflow-chrome.zip` package we generated earlier.
+Edge is Chromium-based and uses the same Manifest V3 package as Chrome: upload `tabflow-chrome.zip` (built by `bash scripts/pack.sh`, which strips the Firefox-only `browser_specific_settings`). Run `npm run test:e2e` in `extension/` first.
 
-Here is the step-by-step process for getting TabFlow Agent published on the Edge Add-ons Store.
-
-## Step 1: Register as an Edge Developer
-Unlike the Chrome Web Store ($5) or Apple Developer Program ($99), registering for a Microsoft Edge developer account is **completely free**.
+## Step 1: Register as an Edge developer
+Registration is free.
 
 1. Go to the [Microsoft Partner Center](https://partner.microsoft.com/en-us/dashboard/microsoftedge/overview).
-2. Sign in with a **personal Microsoft account** (e.g., `@outlook.com` or `@hotmail.com`). *Note: Microsoft currently does not allow work/school accounts for extension developer registration.*
-3. Fill out the Developer Account Registration form with your publisher name (e.g., your name or company name).
-4. **Wait for Verification**: Microsoft requires a short verification period (usually a few hours to a day) before your dashboard becomes fully active. You will receive an email once approved.
+2. Sign in with a **personal Microsoft account** (work/school accounts can't register for extension publishing).
+3. Complete the registration form with your publisher name and wait for verification (a few hours to a day).
 
-## Step 2: Create a New Extension
-Once your account is verified and you have access to the Partner Center dashboard:
+## Step 2: Create the extension and upload
+1. **Create new extension** → upload `tabflow-chrome.zip`.
+2. Do not upload the Firefox ZIP or the source ZIP; Edge only asks for source if a reviewer requests it.
 
-1. Click on **Create new extension** from the Edge Add-ons overview page.
-2. You will be prompted to upload your extension package.
+## Step 3: Store listing
+Reuse the copy from [CHROMEWEBSTORE.md](CHROMEWEBSTORE.md):
 
-## Step 3: Upload the Correct Package
-Because Edge is Chromium-based and follows the same Manifest V3 standards as Google Chrome, you must upload the **Chrome** build of the extension:
+- **Name:** TabFlow Agent
+- **Short description:** Stops duplicate tabs, groups related tabs, and finds any open, closed or archived tab from one keyboard shortcut.
+- **Description:** the "Detailed Description" from `CHROMEWEBSTORE.md`.
+- **Category:** Productivity
+- **Logo:** `extension/icons/icon-128.png` (1:1; Edge recommends 300×300, 128×128 is the minimum).
+- **Screenshots:** the five 1280×800 images in `store-assets/`, with the captions from `CHROMEWEBSTORE.md`.
+- **Small promotional tile (440×280):** not created yet.
+- **Search terms:** tab manager, duplicate tabs, tab groups, organize tabs, archive tabs, command palette, AI
+- **Website:** https://snvishna.github.io/tabflow-agent/
+- **Support:** https://github.com/snvishna/tabflow-agent/issues
 
-1. Click **Browse** and select `tabflow-chrome.zip` from your project root.
-2. *Do not upload the Firefox zip or the Source Code zip.* Edge does not require source code uploads unless specifically requested by reviewers later.
+## Step 4: Privacy
+1. **Privacy policy URL:** https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md
+2. **Permissions:** use the justification table in `CHROMEWEBSTORE.md` (same permissions).
+3. **Remote code:** none. The WebAssembly AI runtime is bundled; the only network requests are the one-time download of the open-source embedding model from huggingface.co (data) and, only if the user adds their own key, calls to the AI provider they chose.
 
-## Step 4: Fill Out Store Listing Details
-After the package processes successfully, you need to complete the store listing:
+## Step 5: Notes for certification
+> No account, login or API key is needed; every feature works with the free on-device AI.
+> 1. After installing, a welcome page opens. Click "Preview groups", then "Apply groups". Click "Undo" to restore.
+> 2. Open https://example.com in a tab, then open it again in a new tab: TabFlow switches to the first tab and shows an Undo notice.
+> 3. Press Ctrl+Shift+Space (or click the toolbar icon) on any web page to open the palette. Type > for commands.
+> 4. The first grouping downloads a small AI model (about 25 MB) once; progress is shown in the preview.
+> No data is collected by the publisher. Tab titles and URLs are only sent to an AI provider if the user enters their own API key for it.
 
-1. **Availability**: Select which markets/countries you want the extension to be available in (default is all).
-2. **Properties**: Choose the category (e.g., Productivity).
-3. **Store Listing Assets**: You will need to upload:
-   - Your `128x128` icon
-   - Promotional Tiles (a `440x280` image and optionally larger banners)
-   - Screenshots of the extension in action (the glassmorphism palette, the active tab groupings)
-   - A descriptive summary and detailed description (you can reuse the exact copy from `CHROMEWEBSTORE.md`).
-4. **Search Terms**: Add relevant keywords like `tabs`, `tab manager`, `AI`, `Gemini`, `OpenAI`, `group tabs`.
-
-## Step 5: Privacy Declarations (Crucial)
-Just like Firefox and Chrome, Microsoft is very strict about privacy in Manifest V3.
-1. **Privacy Policy**: Provide the URL to your hosted `PRIVACY_POLICY.md` (e.g., your GitHub pages URL).
-2. **Data Usage**: Explicitly declare that you are requesting the `tabs` and `tabGroups` permissions to read URLs/Titles for organization.
-3. **Remote Code**: State clearly that the extension does *not* execute remote code, but *does* make API calls to remote AI endpoints (Gemini/OpenAI) using Bring-Your-Own-Key (BYOK) authentication.
-
-## Step 6: Submit for Certification
-1. In the **Notes for Certification** box, explicitly explain the BYOK architecture: *"This extension uses local DOM overlays and communicates with OpenAI/Gemini APIs using the user's explicitly provided API key. No data is collected by the publisher."*
-2. Click **Submit**.
-
-**Review Time:** Certification on Microsoft Edge typically takes **3 to 7 business days**. Every update you push later must have an incremented version number in `manifest.json`.
+Then **Submit**. Certification usually takes 3 to 7 business days. Every update needs a higher `version` in `manifest.json`.

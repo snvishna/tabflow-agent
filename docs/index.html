@@ -3,103 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TabFlow Agent | Intelligent AI Browser Organization</title>
-    <meta name="description" content="Organize your digital life with TabFlow Agent. A radically fast, privacy-first AI tab manager powered by Gemini or OpenAI.">
+    <title>TabFlow Agent: duplicate-free, organized browser tabs</title>
+    <meta name="description" content="TabFlow Agent stops duplicate tabs, groups related tabs, and finds any open, closed or archived tab from one shortcut. Private on-device AI, undo for everything. Free and open source.">
+    <meta name="color-scheme" content="light dark">
+    <meta property="og:title" content="TabFlow Agent">
+    <meta property="og:description" content="Stops duplicate tabs, groups related tabs, and finds any tab from one shortcut. Private on-device AI, undo for everything.">
+    <meta property="og:image" content="https://snvishna.github.io/tabflow-agent/assets/1-search-tabs.png">
+    <link rel="icon" type="image/png" href="assets/icon.png">
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Background Elements -->
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-    <div class="noise-overlay"></div>
-
-    <nav>
-        <div class="logo">
-            <span class="logo-icon">🌌</span> TabFlow Agent
-        </div>
+    <nav class="nav">
+        <a class="logo" href="#top"><img src="assets/icon.png" alt="" width="28" height="28"> TabFlow Agent</a>
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#privacy">Privacy</a>
-            <a href="https://github.com/snvishna/tabflow-agent" target="_blank" class="btn-secondary">View on GitHub</a>
+            <a href="#shortcuts">Shortcuts</a>
+            <a href="https://github.com/snvishna/tabflow-agent" class="btn btn-ghost">GitHub</a>
         </div>
     </nav>
 
-    <header class="hero">
-        <div class="hero-content">
-            <div class="badge">Version 1.0 is here ✨</div>
-            <h1>The <span class="gradient-text">AI Tab Manager</span><br>that respects your privacy.</h1>
-            <p>Drowning in 100+ open tabs? TabFlow Agent uses state-of-the-art AI (Gemini or OpenAI) to organize, group, and archive your tabs—using your own API keys for complete control.</p>
-            <div class="cta-group">
-                <a href="https://github.com/snvishna/tabflow-agent" class="btn-primary">Download Extension</a>
+    <main id="top">
+        <header class="hero">
+            <a class="pill" href="#whats-new">New in 1.1: undo for everything, previews, site rules →</a>
+            <h1>Your tabs, organized<br>as you browse.</h1>
+            <p class="lede">TabFlow Agent stops duplicate tabs, groups related tabs by topic, and finds any open, closed or archived tab from one shortcut. It runs on your device and never closes anything you can't get back.</p>
+            <div class="cta">
+                <a class="btn btn-primary" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
+                <a class="btn btn-ghost" href="https://github.com/snvishna/tabflow-agent#-quickstart-installation">Chrome &amp; Edge: install from source</a>
             </div>
-            <div class="hero-meta">Available for Chrome, Edge, Brave, and Firefox</div>
-        </div>
-        
-        <div class="hero-visual">
-            <div class="glass-panel palette-mockup">
-                <div class="palette-header">
-                    <div class="search-bar">
-                        <span class="icon">✨</span> Search tabs, or type > for commands...
-                    </div>
-                </div>
-                <div class="palette-body">
-                    <div class="section-title">COMMANDS</div>
-                    <div class="palette-item active">
-                        <span class="item-icon">✨</span>
-                        <div class="item-text">
-                            <div class="item-title">Organize All Tabs (AI Magic)</div>
-                        </div>
-                    </div>
-                    <div class="palette-item">
-                        <span class="item-icon">📦</span>
-                        <div class="item-text">
-                            <div class="item-title">Archive Unused Tabs (> 3 Days)</div>
-                        </div>
-                    </div>
-                    <div class="section-title mt-4">ACTIVE TABS</div>
-                    <div class="palette-item">
-                        <div class="item-icon color-dot" style="background: #3b82f6;"></div>
-                        <div class="item-text">
-                            <div class="item-title">Apple Stock - TSLA Q4 Earnings</div>
-                            <div class="item-url">finance.yahoo.com</div>
-                        </div>
-                        <div class="item-time">Investing</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
+            <p class="meta">Free and open source · No account · Chrome Web Store and Edge Add-ons listings coming soon</p>
+            <figure class="shot shot-hero">
+                <img src="assets/1-search-tabs.png" width="1280" height="800" alt="The TabFlow command palette over a web page, searching open, recently closed and archived tabs.">
+            </figure>
+        </header>
 
-    <section id="features" class="features">
-        <div class="feature-grid">
-            <div class="feature-card glass-panel">
-                <div class="feature-icon">🧠</div>
-                <h3>Dual-Engine AI Classification</h3>
-                <p>Powered by Google Gemini or OpenAI. It groups your tabs into intelligent, human-readable categories instantly.</p>
-            </div>
-            <div class="feature-card glass-panel">
-                <div class="feature-icon">📦</div>
-                <h3>Intelligent Archiving</h3>
-                <p>Securely banishes unused tabs to a local IndexedDB archive spanning up to 3 months. Restore them anytime with a single click.</p>
-            </div>
-            <div class="feature-card glass-panel">
-                <div class="feature-icon">🔍</div>
-                <h3>Apple Spotlight UX</h3>
-                <p>Hit Cmd+Shift+Space to summon a gorgeous, glassmorphism command palette overlaying any website you visit.</p>
-            </div>
-        </div>
-    </section>
+        <section id="features" class="features">
+            <article class="feature">
+                <div class="feature-text">
+                    <p class="eyebrow">No more duplicates</p>
+                    <h2>Already open? You're switched to it.</h2>
+                    <p>Open a page you already have open and TabFlow takes you to the existing tab instead of adding another one. A notice with <strong>Undo</strong> appears, so you stay in control.</p>
+                    <ul class="checks">
+                        <li>Only newly opened tabs are affected; browsing inside a tab is never interrupted.</li>
+                        <li>Different pages on the same site stay separate, unless you mark the site as one tab only.</li>
+                        <li>"Close Duplicate Tabs" shows exactly which tabs will close first, and archives them.</li>
+                    </ul>
+                </div>
+                <figure class="shot"><img src="assets/3-duplicate-undo.png" width="1280" height="800" loading="lazy" alt="A notice reading 'Already open — switched to your open tab' with an Undo button."></figure>
+            </article>
 
-    <section id="privacy" class="privacy-banner">
-        <div class="glass-panel text-center">
-            <h2>Your tabs are your business.</h2>
-            <p>Unlike other AI extensions, we do not collect your data. Bring Your Own Key (BYOK) architecture ensures your tab data goes straight from your browser to your chosen AI provider. <strong>Zero telemetry. Complete privacy.</strong></p>
-        </div>
-    </section>
+            <article class="feature reverse">
+                <div class="feature-text">
+                    <p class="eyebrow">Tabs that organize themselves</p>
+                    <h2>See the groups before anything changes.</h2>
+                    <p>"Organize All Tabs" proposes tab groups by topic, like Travel, Development or News. Rename any group, then apply. Nothing moves until you say so.</p>
+                    <ul class="checks">
+                        <li>New tabs you open later join a matching group automatically (you can turn this off).</li>
+                        <li>"Organize Ungrouped Tabs" leaves the groups you made yourself alone.</li>
+                        <li>Pull tabs from every window into one with "Consolidate All Windows".</li>
+                    </ul>
+                </div>
+                <figure class="shot"><img src="assets/2-preview-groups.png" width="1280" height="800" loading="lazy" alt="A preview listing 10 tabs sorted into 3 proposed groups, with Back and Apply groups buttons."></figure>
+            </article>
+
+            <article class="feature">
+                <div class="feature-text">
+                    <p class="eyebrow">One shortcut for everything</p>
+                    <h2>Find any tab. Run any command.</h2>
+                    <p>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> (<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> on Mac) or click the toolbar icon to search every open, recently closed and archived tab. Type <kbd>&gt;</kbd> for commands.</p>
+                    <ul class="checks">
+                        <li>Fully keyboard driven, in light or dark mode.</li>
+                        <li>The toolbar icon shows your tab count at a glance.</li>
+                    </ul>
+                </div>
+                <figure class="shot"><img src="assets/4-commands-dark.png" width="1280" height="800" loading="lazy" alt="The command palette in dark mode listing commands such as Organize All Tabs and Close Duplicate Tabs."></figure>
+            </article>
+        </section>
+
+        <section id="whats-new" class="grid-section">
+            <h2 class="section-title">Built so you never lose a tab</h2>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">↶</div>
+                    <h3>Undo anything</h3>
+                    <p>Every change TabFlow makes can be undone: from the notice, from the top of the palette, or with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">📦</div>
+                    <h3>Archive, don't lose</h3>
+                    <p>Archive tabs you haven't used in a few days (you choose how many), by hand or automatically. They stay searchable and restorable for 90 days.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">📏</div>
+                    <h3>Your rules</h3>
+                    <p>List sites TabFlow must never close, and sites where you only ever want one tab, like your inbox or <code>localhost</code>.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">👋</div>
+                    <h3>Guided first run</h3>
+                    <p>A welcome page shows your shortcut, helps you pick another if it's taken, and organizes your first window with you.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">💾</div>
+                    <h3>Backup &amp; restore</h3>
+                    <p>Export your open tabs and archive to a file, and import it on another machine.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon" aria-hidden="true">🧾</div>
+                    <h3>Activity log</h3>
+                    <p>See every decision TabFlow made in the last 7 days, and why.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="privacy" class="privacy">
+            <div class="privacy-text">
+                <p class="eyebrow">Private by default</p>
+                <h2>Your tabs stay on your device.</h2>
+                <p>Grouping and duplicate detection run in your browser with a small open-source AI model (about 25&nbsp;MB, downloaded once and cached). No account, no tracking, no data collected by us.</p>
+                <p><strong>Want sharper group names?</strong> Optionally add your own Claude, OpenAI or Gemini API key (or any OpenAI-compatible endpoint). Tab titles and addresses then go to that provider only, and only for the features you use.</p>
+                <p><a href="https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md">Read the privacy policy →</a></p>
+            </div>
+            <figure class="shot"><img src="assets/5-welcome.png" width="1280" height="800" loading="lazy" alt="The TabFlow welcome page showing the shortcut and an Organize this window step."></figure>
+        </section>
+
+        <section id="shortcuts" class="shortcuts">
+            <h2 class="section-title">Shortcuts &amp; commands</h2>
+            <div class="table-wrap">
+                <table>
+                    <tbody>
+                        <tr><th scope="row">Open the palette</th><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> · <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> on Mac</td></tr>
+                        <tr><th scope="row">Undo the last action</th><td><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd></td></tr>
+                        <tr><th scope="row">Show commands</th><td>Type <kbd>&gt;</kbd> in the palette</td></tr>
+                        <tr><th scope="row">Organize</th><td>Organize All Tabs · Organize Ungrouped Tabs · Ungroup All Tabs · Consolidate All Windows</td></tr>
+                        <tr><th scope="row">Clean up</th><td>Close Duplicate Tabs · Archive Unused Tabs · Recover Last Archived</td></tr>
+                        <tr><th scope="row">More</th><td>Export / Import Backup · Settings · Welcome, Tips &amp; Shortcuts</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="note">Shortcuts can be changed in Settings → Toolbar &amp; Shortcuts.</p>
+        </section>
+
+        <section class="closing">
+            <h2>Give your tabs some flow.</h2>
+            <div class="cta">
+                <a class="btn btn-primary" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
+                <a class="btn btn-ghost" href="https://github.com/snvishna/tabflow-agent">View the source</a>
+            </div>
+        </section>
+    </main>
 
     <footer>
-        <p>&copy; 2026 TabFlow Agent. Open-source under the MIT License.</p>
+        <p>TabFlow Agent 1.1 · MIT License · <a href="https://github.com/snvishna/tabflow-agent">GitHub</a> · <a href="https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md">Privacy</a> · <a href="https://github.com/snvishna/tabflow-agent/issues">Report an issue</a></p>
     </footer>
 </body>
 </html>

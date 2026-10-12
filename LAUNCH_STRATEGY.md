@@ -1,74 +1,73 @@
 # Launch & Social Media Strategy: TabFlow Agent
 
-A tactical launch plan for TabFlow Agent, focusing on Developer Productivity, AI Tooling, and Browser Enthusiast communities.
+A launch plan for TabFlow Agent 1.1, aimed at developer-productivity, browser-enthusiast and privacy-minded communities.
+
+Links to use everywhere:
+- Website: https://snvishna.github.io/tabflow-agent/
+- Firefox: https://addons.mozilla.org/addon/tabflow-agent/
+- Chrome Web Store: *add once approved*
+- Source: https://github.com/snvishna/tabflow-agent
 
 ---
 
-## 1. The Core Narrative
-**The Problem:** Browser tabs are out of control. We open the same docs, the same tools, and the same articles 10 times a day, eating up RAM and mental bandwidth.
-**The Solution:** An autonomous, dual-engine AI agent that lives in your browser. It silently intercepts duplicate navigations to keep you focused, and semantically clusters your chaos into organized groups.
-**The Hook:** "The first browser tab manager powered by Gemini 3.8 Flash and TypeSafe Jev."
+## 1. Core narrative
+**The problem:** we open the same docs, dashboards and tickets over and over, lose track of what's open, and are afraid to close anything in case we need it.
+**The solution:** TabFlow keeps your tabs tidy while you browse: no duplicate tabs, related tabs grouped by topic, and one shortcut to find any open, closed or archived tab.
+**The hook:** *"A tab manager that never closes anything you can't get back."* Every action has a preview or an Undo, and every closed tab is archived for 90 days.
+**The privacy angle:** on-device AI by default, no account, no telemetry. Bring your own Claude, OpenAI or Gemini key only if you want sharper group names.
 
-## 2. Product Hunt Launch (Day 1)
+## 2. Product Hunt
 
-**Tagline:** TabFlow Agent - The AI-powered browser tab lifecycle manager.
-**First Comment (Maker's Comment):**
-> "Hey Product Hunt! 👋 I'm [Name], creator of TabFlow Agent. 
-> 
-> Like many of you, my browser is a graveyard of duplicate Jira tickets, duplicated API docs, and scattered research. I built TabFlow Agent to act as a silent bouncer for my browser. 
-> 
-> 🧠 **What it does:**
-> - **Zero-Latency Deduplication:** Powered by a fast Reflex Engine, if you click a link you already have open, it intercepts the navigation and focuses your existing tab.
-> - **Semantic Grouping:** Hit `Cmd+Shift+Space` to invoke the command palette, where the Cognitive Engine (powered by Gemini 3.8 Flash) semantically organizes your 50 open tabs into topical Browser Tab Groups.
-> - **BYOK (Bring Your Own Key):** Completely private. Run it entirely locally, or plug in your own Google Gemini/OpenAI/TypeSafe API keys for advanced reasoning.
-> 
-> Would love to hear your feedback on the UX and the local fallback mechanisms! Let me know what you think below."
+**Tagline:** Duplicate-free, organized tabs, with undo for everything.
 
-## 3. Twitter / X Thread (Launch Morning)
+**Maker's comment:**
+> Hey Product Hunt! 👋 I built TabFlow Agent because my browser was a graveyard of duplicate tickets, docs and dashboards, and I was scared to close any of it.
+>
+> **What it does**
+> - **No duplicate tabs:** open a page you already have open and TabFlow switches you to it, with an Undo button.
+> - **Grouping with a preview:** "Organize All Tabs" proposes groups by topic. Rename them, then apply. New tabs join the right group on their own.
+> - **One shortcut for everything:** Ctrl/Cmd+Shift+Space searches every open, closed and archived tab. Type > for commands.
+> - **Undo anything:** from the notice, the palette, or Alt+Shift+U. Closed tabs stay restorable for 90 days.
+> - **Private by default:** a small AI model runs in your browser. Add your own API key only if you want to.
+>
+> Free and open source. I'd love feedback on the defaults: what should TabFlow do (or never do) automatically?
 
-**Tweet 1 (The Hook & Video):**
-> I finally fixed the worst part of browsing the web: Duplicate Tabs. 
-> 
-> Meet TabFlow Agent. A dual-engine AI that silently prevents you from opening duplicates, and semantically groups the chaos you already have.
-> 
-> And yes, you can Bring Your Own API Key. 🧵👇
-> [Attach 30-second Demo Video: Show clicking a duplicate link -> instantly refocusing. Show the Palette grouping tabs.]
+## 3. X / Bluesky thread
 
-**Tweet 2 (The Reflex Engine):**
-> How many times today have you opened the exact same Google Doc or AWS console?
-> 
-> The Reflex Engine intercepts your navigation *before* it loads, checks if you already have it open, and instantly snaps you to the existing tab. Zero clutter. Zero extra RAM.
+**1 (hook + video):**
+> I fixed the most annoying thing about browsing: duplicate tabs, and the fear of closing anything.
+>
+> TabFlow Agent: no duplicates, auto-grouped tabs, one shortcut to find any tab, and Undo for everything. Free, open source, on-device AI. 🧵
+> [30-second video: open a duplicate → switched with Undo; preview groups → apply; palette search finds an archived tab]
 
-**Tweet 3 (The Cognitive Engine):**
-> When your window eventually hits 50 tabs, hit Cmd+Shift+Space.
-> 
-> The Cognitive Engine (powered by Gemini 3.8 Flash) reads your tab context and automatically clusters them into native Browser Tab Groups. Chaos to organization in 3 seconds.
+**2 (duplicates):**
+> Open a page you already have open and TabFlow takes you to the existing tab. Changed your mind? Hit Undo. It only acts on newly opened tabs, never on browsing inside a tab.
 
-**Tweet 4 (Privacy & Tech Stack):**
-> As developers, we care about privacy. TabFlow is BYOK (Bring Your Own Key). 
-> 
-> Plug in Google Gemini, OpenAI, Anthropic, or TypeSafe. Don't want to use cloud AI? The engine falls back to local mathematical embeddings right in your browser. 
-> 
-> 🔗 Chrome Web Store: [Link]
-> 🔗 Firefox AMO: [Link]
-> 🐙 Open Source: [GitHub Link]
+**3 (grouping):**
+> "Organize All Tabs" shows you the proposed groups first. Rename any of them, then apply. New tabs you open later slot into the matching group.
+
+**4 (safety):**
+> Nothing is lost. Every action can be undone, and anything TabFlow closes is archived and searchable for 90 days.
+
+**5 (privacy + links):**
+> Grouping runs on a small AI model in your browser. No account, no tracking. Bring your own Claude/OpenAI/Gemini key if you want, and only that provider sees your tab titles.
+> 🦊 Firefox: [link] · 🌐 [website] · 🐙 [GitHub]
 
 ## 4. Hacker News (Show HN)
 
-**Title:** Show HN: TabFlow – A BYOK AI agent to deduplicate and organize browser tabs
+**Title:** Show HN: TabFlow – on-device tab dedupe and grouping, with undo for everything
+
 **Body:**
-> Hi HN,
-> 
-> I built an extension to solve my own tab hoarding problem. I found that 30% of my tabs were just duplicates of docs/tickets I had already opened but lost in the noise.
-> 
-> TabFlow intercepts `webNavigation` events and uses a fast "Reflex Engine" (rules + lightweight LLM) to deduplicate navigations in real-time. For the heavy lifting, it uses a "Cognitive Engine" (Gemini 3.8 Flash or your preferred API) to semantically group your remaining tabs into Chrome Tab Groups via a command palette overlay.
-> 
-> I built it with privacy in mind: BYOK (Bring Your Own Key) or fallback to local embeddings. 
-> 
-> Source code is on GitHub. Would love feedback on the navigation interception logic or the prompt engineering for the grouping agent!
+> I kept opening the same docs and tickets in new tabs, and kept 100+ tabs open because closing them felt risky. TabFlow is a MV3 extension (Firefox and Chromium) that:
+>
+> - intercepts `webNavigation.onBeforeNavigate` for *newly opened* tabs only, and switches to an existing tab on an exact URL match (with an Undo notice);
+> - groups tabs with `all-MiniLM-L6-v2` embeddings running in WASM inside the service worker (bundled runtime, no remote code), with a preview step before anything changes;
+> - archives everything it closes to IndexedDB for 90 days, searchable from a command palette;
+> - optionally uses your own LLM key: a fast model decides "same app, reuse the tab" vs. "different document, keep both", and a stronger one names groups.
+>
+> Source is MIT on GitHub. I'd love feedback on the duplicate heuristics and on what should be automatic vs. opt-in.
 
-## 5. Reddit Communities
+## 5. Reddit
 
-**Subreddits:** `r/browsers`, `r/productivity`, `r/SideProject`, `r/chrome_extensions`
-**Tone:** Informational, zero-fluff, highly technical for the dev subreddits.
-**Post Format:** Focus heavily on the "Bring Your Own Key" aspect. Reddit users are highly skeptical of AI wrappers that charge monthly fees. Leading with "It's a free extension where you plug in your own API key" will bypass the usual anti-AI sentiment and generate strong technical goodwill.
+**Subreddits:** `r/firefox`, `r/browsers`, `r/productivity`, `r/SideProject`, `r/chrome_extensions` (once the Chrome listing is live).
+**Tone:** plain and specific; lead with "free, open source, on-device, undo for everything". Mention API keys only as an optional extra: Reddit is skeptical of AI wrappers, and TabFlow doesn't need one.
