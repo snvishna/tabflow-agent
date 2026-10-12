@@ -29143,7 +29143,7 @@ async function getSmartGroupName(clusterItemEmbeddings) {
   }
   return null;
 }
-var embedder, CATEGORIES, categoryEmbeddings;
+var runtimeAPI, embedder, CATEGORIES, categoryEmbeddings;
 var init_clustering = __esm({
   "src/clustering.js"() {
     init_transformers();
@@ -29151,6 +29151,8 @@ var init_clustering = __esm({
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     env.backends.onnx.wasm.numThreads = 1;
+    runtimeAPI = typeof browser !== "undefined" ? browser : chrome;
+    env.backends.onnx.wasm.wasmPaths = runtimeAPI.runtime.getURL("dist/");
     embedder = null;
     CATEGORIES = [
       "Finance & Banking",
@@ -35736,6 +35738,7 @@ var require_background = __commonJS({
       try {
         const targetUrlStr = details.url;
         const targetUrl = new URL(targetUrlStr);
+        if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") return;
         const storage = await browserAPI.storage.local.get(["agentSettings"]);
         const s = storage.agentSettings || {};
         const existingTabs = await browserAPI.tabs.query({});

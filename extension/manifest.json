@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
   "name": "TabFlow Agent",
-  "version": "1.0.0",
-  "description": "State-of-the-art dual-engine AI browser tab lifecycle manager.",
+  "version": "1.0.1",
+  "description": "Groups related tabs, prevents duplicate tabs, and lets you search open and archived tabs from a command palette.",
   "permissions": [
     "tabs",
     "tabGroups",
     "storage",
     "webNavigation",
-    "alarms",
     "scripting",
     "activeTab",
     "sessions"
@@ -19,7 +18,7 @@
   "commands": {
     "toggle-palette": {
       "suggested_key": {
-        "default": "MacCtrl+Shift+Space",
+        "default": "Ctrl+Shift+Space",
         "mac": "Command+Shift+Space"
       },
       "description": "Open Tab Command Palette"

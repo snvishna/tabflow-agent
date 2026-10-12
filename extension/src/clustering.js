@@ -10,6 +10,11 @@ env.useBrowserCache = true;   // Cache models in the browser so we only download
 // We must restrict it to a single thread to prevent the 'unsafe-eval' crash.
 env.backends.onnx.wasm.numThreads = 1;
 
+// MV3 forbids remotely hosted code, so load the ONNX WASM binaries bundled in
+// dist/ (copied by build.mjs) instead of transformers.js' default CDN.
+const runtimeAPI = typeof browser !== "undefined" ? browser : chrome;
+env.backends.onnx.wasm.wasmPaths = runtimeAPI.runtime.getURL('dist/');
+
 let embedder = null;
 
 /**
