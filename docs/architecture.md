@@ -1,50 +1,64 @@
 # System Architecture
 
-The TabFlow Agent is designed as a highly scalable, dual-engine AI system running inside the browser.
+TabFlow Agent is a Manifest V3 extension with one codebase for Chromium browsers and Firefox. Everything runs inside the browser; the only optional network dependency is an AI provider the user configures with their own key.
 
-## High-Level Component Diagram
+## Component Diagram
 
 ```mermaid
 flowchart TD
-    subgraph Browser Context (Manifest V3)
-        A[Content Script] -->|Cmd+Shift+Space| B[Command Palette UI]
-        B -->|Message Passing| C[Agent Background Script]
-        
-        subgraph The Reflex Engine (System 1)
-            C <-->|Lightweight HTTP API| D[Fast Router: Jev / Groq]
-        end
-        
-        subgraph The Cognitive Engine (System 2)
-            C <-->|Heavy Generative HTTP API| E[Generative LLM: Anthropic / OpenAI]
-        end
-        
-        C -->|Tabs API| F[Native Browser Tab Groups]
-        C <-->|Dexie.js| G[(90-Day Infinite Lifecycle Log)]
+    subgraph Browser["Browser (Manifest V3)"]
+        CS[Content script] -->|shortcut / toolbar icon| P[Command palette iframe]
+        CS --> T[Undo notice]
+        W[Welcome page] --> BG
+        P -->|runtime messages| BG[Background service worker]
+        BG -->|webNavigation| D[Duplicate check]
+        BG --> G[Grouping planner]
+        BG --> A[Archiver + auto-archive alarm]
+        BG --> U[Undo stack]
+        BG --> B[Toolbar badge]
+        G --> M[On-device embeddings<br/>all-MiniLM-L6-v2]
+        BG -->|tabs / tabGroups APIs| TG[Native tabs and tab groups]
+        BG <-->|Dexie.js| DB[(IndexedDB: 90-day archive,<br/>7-day activity log)]
     end
+    D -. optional, user's key .-> R[Reflex Engine: fast LLM]
+    G -. optional, user's key .-> C[Cognitive Engine: generative LLM]
 ```
 
-## Component Breakdown
+## Components
 
-### 1. Command Palette UI (`palette.html`, `palette.js`)
-- **Role:** The primary user interface.
-- **Design:** Injected securely as an `iframe` overlay inside the active tab. This guarantees perfect CSS isolation (preventing the host website's styles from breaking the palette).
-- **Communication:** Sends asynchronous commands (e.g., `cluster_tabs`, `deduplicate_tabs`) to the Background Script.
+### 1. Command palette (`palette.html`, `src/palette.js`, `src/preview.js`)
+- Injected as an `iframe` overlay by `src/content.js`, so the host page's CSS can't break it (and vice versa).
+- Fuzzy search across open tabs, recently closed tabs (`sessions`) and the archive; `>` switches to commands.
+- Previews for grouping, closing duplicates and archiving: the background returns a *plan*, the palette shows it (groups can be renamed), and only "Apply" changes anything.
+- Settings: archive days, auto-archive, auto-grouping, site rules, toolbar badge, shortcuts, and the optional API keys.
 
-### 2. The Agent Background Engine (`background.js`, `prompts.js`)
-- **Role:** The brain of the extension.
-- **Responsibilities:** 
-  - Listens for `webNavigation` events to trigger real-time deduplication.
-  - Loads semantic agent instructions from `prompts.js`.
-  - Routes payload data to either the Reflex Engine or Cognitive Engine based on user API key configuration.
+### 2. Background service worker (`src/background.js`)
+- **Duplicate check** (`webNavigation.onBeforeNavigate`): only for *fresh* tabs (newly opened, not navigations inside an existing tab), only for web URLs, and never for "never close" sites.
+  1. Exact match (normalized URL) → switch to the existing tab.
+  2. If the Reflex Engine is configured: ask it whether a different page on the same site should reuse the open tab (`REFRESH`) or open alongside it (`NEW_TAB`). Decisions are cached per URL pair in `storage.session`.
+  3. Otherwise, "one tab per site" rules reuse the existing tab for those sites.
+  Every switch shows an Undo notice; the closed new tab is restorable.
+- **Grouping** (`planGrouping` / `applyGroupPlan`): the Cognitive Engine if configured, else on-device clustering (`src/clustering.js`). "Ungrouped only" mode leaves existing groups alone.
+- **Auto-grouping** (`src/autogroup.js`): when a new tab finishes loading, it joins the most similar existing group above a similarity threshold.
+- **Archiving**: tabs unused for the chosen number of days are saved to IndexedDB and closed; an optional hourly `alarms` job does this automatically.
+- **Undo** (`src/undo.js`): every action records how to reverse it (reopen tabs, restore group snapshot). Entries live in `storage.session` for 30 minutes.
+- **Badge** (`src/badge.js`): tab count on the toolbar icon (optional), or a hint when the shortcut is unassigned.
 
-### 3. The Dual-Engine AI System
-- **The Reflex Engine (System 1)**: Runs on every link click. Defaults to local exact-match routing and heuristic single-instance domains (`localhost`, etc) for 0ms deduplication. Power users can plug in a fast API classifier (like TypeSafe Jev or Groq) for highly intelligent, semantic URL routing via low-latency HTTP.
-- **The Cognitive Engine (System 2)**: Runs on demand. Uses generative LLMs (Anthropic Claude, OpenAI GPT-4o) via API keys to cluster tabs, generate human-readable category names, and process complex grouping logic. If no API key is provided, falls back to mathematical TF-IDF semantic clustering algorithms running securely inside the service worker context.
+### 3. On-device AI (`src/clustering.js`)
+- `@xenova/transformers` runs `Xenova/all-MiniLM-L6-v2` in WebAssembly inside the service worker. The ONNX runtime files are bundled into `dist/` by `build.mjs`; the model weights (~25 MB) are downloaded from huggingface.co on first use and cached. Download progress is reported to the preview UI.
+- Each tab's title + hostname is embedded; tabs are clustered greedily by cosine similarity with a bonus for the same domain, and each cluster gets a short name.
 
-### 4. The 90-Day Lifecycle Log (IndexedDB)
-- **Role:** Persistent infinite-memory cold-storage.
-- **Mechanics:** Every closed tab is logged into a local IndexedDB archive via `Dexie.js`. It strictly auto-prunes at 90 days to maintain browser performance, effectively creating a massive, fuzzy-searchable history database.
+### 4. Optional remote AI (`src/providers.js`, `src/prompts.js`)
+- The provider (Anthropic, OpenAI, Gemini, TypeSafe) is detected from the key prefix, which fills a default endpoint and model. Any OpenAI-compatible endpoint can be set in advanced settings, separately for each engine.
+- Calls time out after 15 s. If the Cognitive Engine fails, grouping falls back to on-device clustering; if the Reflex Engine fails, both tabs stay open. Outcomes are written to the activity log.
 
-### 5. Multi-Browser Support Abstraction
-- **Role:** Seamless execution across Chromium and Firefox engines.
-- **Mechanics:** The extension employs a dynamic API resolution layer (`const browserAPI = typeof browser !== "undefined" ? browser : chrome;`). This automatically detects if it is running in a Mozilla environment or a Chromium environment, ensuring complete compatibility.
+### 5. Storage
+| Store | Contents | Lifetime |
+|---|---|---|
+| IndexedDB (`src/db.js`, Dexie) | Archived/closed tabs; activity log | 90 days; 7 days |
+| `storage.local` | Settings, site rules, API keys | Until changed or uninstalled |
+| `storage.session` | Undo history, reflex cache, fresh-tab tracking | Until the browser closes |
+
+### 6. Cross-browser
+- `const browserAPI = typeof browser !== "undefined" ? browser : chrome;` everywhere.
+- `scripts/pack.sh` builds once and creates per-browser packages from a pristine manifest each time: Chrome/Edge get `background.service_worker` and no `browser_specific_settings`; Firefox gets `background.scripts` and keeps its gecko settings.
