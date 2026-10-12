@@ -3,6 +3,8 @@ import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, b
 import { PROMPTS } from './prompts.js';
 import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, sanitizeArchiveDays } from './utils.js';
 import { defaultsForKey } from './providers.js';
+import { recordUndo, peekUndo, takeUndo, describeClosedTab } from './undo.js';
+import { showToast } from './toast.js';
 
 // Unified browser API access
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
@@ -305,6 +307,47 @@ browserAPI.webNavigation.onCommitted.addListener((details) => {
     updateFreshTabs(fresh => { delete fresh[details.tabId]; });
 });
 
+// URLs reopened by Undo must not be deduplicated straight away again
+const DEDUPE_BYPASS_KEY = 'dedupeBypass';
+const DEDUPE_BYPASS_MS = 15000;
+
+async function addDedupeBypass(urls) {
+    const res = await browserAPI.storage.session.get([DEDUPE_BYPASS_KEY]);
+    const bypass = res[DEDUPE_BYPASS_KEY] || {};
+    const now = Date.now();
+    for (const [k, expiry] of Object.entries(bypass)) if (expiry < now) delete bypass[k];
+    for (const u of urls) bypass[normalizeUrl(u)] = now + DEDUPE_BYPASS_MS;
+    await browserAPI.storage.session.set({ [DEDUPE_BYPASS_KEY]: bypass });
+}
+
+async function isDedupeBypassed(url) {
+    const res = await browserAPI.storage.session.get([DEDUPE_BYPASS_KEY]);
+    const expiry = (res[DEDUPE_BYPASS_KEY] || {})[normalizeUrl(url)];
+    return Boolean(expiry && expiry > Date.now());
+}
+
+/**
+ * Focuses `existing` instead of the new tab, optionally loading `targetUrl` into it,
+ * and offers an Undo that reopens the new tab (and restores the existing tab's page).
+ */
+async function redirectToExistingTab(newTabId, existing, targetUrl, reason) {
+    let newTab = null;
+    try { newTab = await browserAPI.tabs.get(newTabId); } catch (e) { /* already gone */ }
+    if (targetUrl) await safeUpdateTab(existing.id, { url: targetUrl, active: true });
+    else await safeUpdateTab(existing.id, { active: true });
+    await safeFocusWindow(existing.windowId);
+    await safeRemoveTab(newTabId);
+
+    const closed = describeClosedTab({ ...(newTab || {}), url: targetUrl || existing.url, windowId: newTab ? newTab.windowId : existing.windowId });
+    const undoId = await recordUndo({
+        kind: 'close',
+        label: 'Reopen the tab TabFlow switched away from',
+        tabs: [closed],
+        restoreUrls: targetUrl ? [{ tabId: existing.id, url: existing.url }] : []
+    });
+    await showToast(`${reason} — switched to your open tab.`, { undoId, windowId: existing.windowId });
+}
+
 // Cache AI duplicate decisions so the same pair of pages never costs a second API call
 const REFLEX_CACHE_KEY = 'reflexCache';
 const REFLEX_CACHE_MAX = 200;
@@ -335,6 +378,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         // Only deduplicate real web pages; blank, new-tab and browser pages must never be closed
         if (!isWebUrl(targetUrlStr)) return;
         if (!(await isFreshTab(details.tabId))) return;
+        if (await isDedupeBypassed(targetUrlStr)) return;
 
         const targetUrl = new URL(targetUrlStr);
         
@@ -359,9 +403,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         const exactMatch = hostMatches.find(tab => normalizeUrl(tab.url) === normalizeUrl(targetUrlStr));
         if (exactMatch) {
             addLog('DECISION', 'Deduplication', 'success', `Exact duplicate found for ${targetUrlStr} (Local Engine | Match: 100%). Redirecting focus.`);
-            await safeUpdateTab(exactMatch.id, { active: true });
-            await safeFocusWindow(exactMatch.windowId);
-            await safeRemoveTab(details.tabId);
+            await redirectToExistingTab(details.tabId, exactMatch, null, 'Already open');
             return;
         }
         const match = hostMatches[0];
@@ -386,9 +428,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
                 }
                 
                 if (decision.action === "REFRESH") {
-                    await safeUpdateTab(match.id, { url: targetUrlStr, active: true });
-                    await safeFocusWindow(match.windowId);
-                    await safeRemoveTab(details.tabId);
+                    await redirectToExistingTab(details.tabId, match, targetUrlStr, 'Reused a similar tab');
                 }
             } catch (err) {
                 addLog('DECISION', 'Reflex Engine', 'error', `Failed to deduplicate: ${err.message}`);
@@ -401,9 +441,7 @@ browserAPI.webNavigation.onBeforeNavigate.addListener(async (details) => {
         const isSingleInstance = singleInstanceDomains.some(d => hostMatchesDomain(targetUrl.hostname, d));
         if (isSingleInstance) {
             addLog('DECISION', 'Local Fallback', 'success', `Single-instance domain matched. Updating tab ${match.id} to new path: ${targetUrlStr}`);
-            await safeUpdateTab(match.id, { url: targetUrlStr, active: true });
-            await safeFocusWindow(match.windowId);
-            await safeRemoveTab(details.tabId);
+            await redirectToExistingTab(details.tabId, match, targetUrlStr, `One tab per ${targetUrl.hostname}`);
         }
     } catch (error) {
         console.error("Error processing navigation:", error);
@@ -418,24 +456,46 @@ async function getArchiveDays() {
     return sanitizeArchiveDays((agentSettings || {}).archiveAfterDays);
 }
 
+/** Tabs that would be archived right now (see selectStaleTabs). */
+async function planStaleTabs(query = {}) {
+    const days = await getArchiveDays();
+    const tabs = await browserAPI.tabs.query(query);
+    return { days, tabs: selectStaleTabs(tabs, Date.now(), days) };
+}
+
 /**
- * Archives (saves to the local archive, then closes) tabs unused for longer than the
- * user's threshold. Never touches the active, pinned or audible tabs.
- * @param {object} query tabs.query filter, e.g. the current window
+ * Saves tabs to the local archive and closes them, recording one undo entry.
+ * Tabs that were closed in the meantime are skipped.
+ * @returns {Promise<{count: number, undoId: string|null}>}
+ */
+async function archiveAndCloseTabs(tabIds, label) {
+    const closed = [];
+    const closedIds = [];
+    for (const id of tabIds) {
+        let tab;
+        try { tab = await browserAPI.tabs.get(id); } catch (e) { continue; }
+        const archivedId = await archiveTab(tab);
+        closed.push(describeClosedTab(tab, archivedId));
+        closedIds.push(id);
+    }
+    if (closed.length === 0) return { count: 0, undoId: null };
+    try { await browserAPI.tabs.remove(closedIds); } catch (e) { /* some already closed */ }
+    const undoId = await recordUndo({ kind: 'close', label, tabs: closed });
+    return { count: closed.length, undoId };
+}
+
+/**
+ * Archives tabs unused for longer than the user's threshold. Never touches the
+ * active, pinned or audible tabs.
  * @returns {Promise<number>} number of tabs archived
  */
 async function archiveStaleTabs(query = {}) {
-    const days = await getArchiveDays();
-    const tabs = await browserAPI.tabs.query(query);
-    const stale = selectStaleTabs(tabs, Date.now(), days);
-    for (const tab of stale) {
-        await archiveTab(tab);
-        await safeRemoveTab(tab.id);
-    }
-    if (stale.length > 0) {
-        addLog('DECISION', 'Archive Stale Tabs', 'success', `Archived ${stale.length} tabs unused for more than ${days} days.`);
-    }
-    return stale.length;
+    const { days, tabs } = await planStaleTabs(query);
+    if (tabs.length === 0) return 0;
+    const { count, undoId } = await archiveAndCloseTabs(tabs.map(t => t.id), `Restore ${tabs.length} archived tab${tabs.length === 1 ? '' : 's'}`);
+    addLog('DECISION', 'Archive Stale Tabs', 'success', `Archived ${count} tabs unused for more than ${days} days.`);
+    if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId });
+    return count;
 }
 
 async function syncAutoArchiveAlarm(settings) {
@@ -520,6 +580,10 @@ function openPalette() {
 browserAPI.commands.onCommand.addListener((command) => {
     if (command === "toggle-palette") {
         openPalette();
+    } else if (command === "undo-last-action") {
+        undoAction().then(done => {
+            if (!done) showToast('Nothing to undo.');
+        }).catch(e => console.error("Undo failed:", e));
     }
 });
 
@@ -591,114 +655,85 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
     
-    if (message.action === 'deduplicate_tabs') {
-        browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT }).then(async tabs => {
-            // 1. Exact URL duplicates (ignores #fragments and trailing slashes)
-            const { toClose: exactDupes, toKeep } = planExactDuplicates(tabs);
-
-            // 2. Near-identical pages (same article with different tracking params, etc.).
-            // The same-site bonus is disabled here: two different pages on one site are not duplicates.
-            const webTabs = toKeep.filter(t => isWebUrl(t.url));
-            const clusters = await clusterTabs(webTabs, 0.95, { domainBonus: 0 });
-            const nearDupes = clusters.flatMap(cluster => planClusterClosures(cluster.tabs));
-
-            // Archive before closing so every closed tab can be restored from the palette
-            const toClose = [...exactDupes, ...nearDupes];
-            for (const tab of toClose) await archiveTab(tab);
-            if (toClose.length > 0) await browserAPI.tabs.remove(toClose.map(t => t.id));
-
-            addLog('DECISION', 'Deduplicate Tabs', 'success', `Closed ${exactDupes.length} exact and ${nearDupes.length} near-identical duplicates (archived).`);
-            sendResponse({ 
-                status: 'success', 
-                exactClosed: exactDupes.length, 
-                semanticClosed: nearDupes.length 
-            });
-        }).catch(error => {
-            console.error("Deduplication failed:", error);
-            sendResponse({ status: 'error', error: error.message });
-        });
-        return true;
-    }
-    if (message.action === 'ungroup_all') {
-        browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT }).then(async tabs => {
-            const groupedTabs = tabs.filter(t => t.groupId !== -1 && t.groupId !== undefined).map(t => t.id);
-            if (groupedTabs.length > 0) {
-                // If native tabGroups are not fully supported, this might fail, so we wrap it
-                if (browserAPI.tabs.ungroup) {
-                    await browserAPI.tabs.ungroup(groupedTabs);
-                }
-            }
-            sendResponse({ status: 'success' });
-        });
-        return true;
-    }
-    
-    if (message.action === 'cluster_tabs_force' || message.action === 'cluster_tabs_leaf') {
-        browserAPI.tabs.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT })
-            .then(async tabs => {
-                let targetTabs = tabs;
-                
-                if (message.action === 'cluster_tabs_leaf') {
-                    targetTabs = tabs.filter(t => t.groupId === -1 || t.groupId === undefined);
-                } else if (message.action === 'cluster_tabs_force') {
-                    const groupedTabs = tabs.filter(t => t.groupId !== -1 && t.groupId !== undefined).map(t => t.id);
-                    if (groupedTabs.length > 0 && browserAPI.tabs.ungroup) {
-                        await browserAPI.tabs.ungroup(groupedTabs);
-                    }
-                    targetTabs = tabs; 
-                }
-                
-                if (targetTabs.length <= 1) return []; 
-
-                // 1. Check for Cognitive Engine Settings
-                const storage = await browserAPI.storage.local.get(['agentSettings']);
-                const s = storage.agentSettings || {};
-                
-                let clusters = null;
-
-                if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel) {
-                    try {
-                        const tabsJson = JSON.stringify(targetTabs.map(t => ({ id: t.id, url: t.url, title: t.title })));
-                        const response = await callAgentAPI(s.cognitiveUrl, s.cognitiveKey, s.cognitiveModel, PROMPTS.GROUPING_AGENT, `INPUT TABS TO CLASSIFY:\n${tabsJson}`);
-                        
-                        // Parse agent format to local cluster format
-                        if (Array.isArray(response)) {
-                            clusters = response.map(group => ({
-                                tabs: targetTabs.filter(t => group.tabIds.includes(t.id)),
-                                name: group.groupName
-                            })).filter(c => c.tabs.length > 0);
-                            addLog('DECISION', 'Cognitive Engine', 'success', `Grouped ${targetTabs.length} tabs into ${clusters.length} categories.`);
-                        }
-                    } catch (err) {
-                        addLog('DECISION', 'Cognitive Engine', 'error', `Failed to group: ${err.message}. Falling back to local math.`);
-                        console.error("Cognitive Engine failed, falling back to local math:", err);
-                    }
-                }
-
-                // 2. Free Local Fallback (if Agent fails or isn't configured)
-                if (!clusters) {
-                    clusters = await clusterTabs(targetTabs);
-                    addLog('DECISION', 'Local Fallback', 'success', `Used text embeddings to group ${targetTabs.length} tabs into ${clusters.length} categories.`);
-                }
-
-                await applyClustersToTabs(clusters);
-                return clusters;
-            })
-            .then(clusters => sendResponse({ status: 'success', clusters }))
+    // Planning actions return a preview; apply actions perform it and record an undo entry.
+    const respond = (promise) => {
+        promise.then(result => sendResponse({ status: 'success', ...result }))
             .catch(error => {
-                console.error("Clustering failed:", error);
+                console.error(`${message.action} failed:`, error);
                 sendResponse({ status: 'error', error: error.message });
             });
-        
-        return true; 
+        return true;
+    };
+
+    if (message.action === 'plan_dedupe') {
+        return respond(getTargetWindowId(sender).then(planDuplicates));
+    }
+    if (message.action === 'apply_dedupe') {
+        return respond(applyDuplicateClosures(message.tabIds || []));
+    }
+    if (message.action === 'deduplicate_tabs') {
+        return respond(getTargetWindowId(sender).then(async windowId => {
+            const plan = await planDuplicates(windowId);
+            await applyDuplicateClosures(plan.tabs.map(t => t.id));
+            return {
+                exactClosed: plan.tabs.filter(t => t.reason === 'exact').length,
+                semanticClosed: plan.tabs.filter(t => t.reason === 'near').length
+            };
+        }));
+    }
+    if (message.action === 'ungroup_all') {
+        return respond(getTargetWindowId(sender).then(async windowId => {
+            const snapshot = await snapshotGroups(windowId);
+            const grouped = (await browserAPI.tabs.query({ windowId })).filter(isGrouped).map(t => t.id);
+            if (grouped.length > 0 && browserAPI.tabs.ungroup) {
+                await browserAPI.tabs.ungroup(grouped);
+                const undoId = await recordUndo({ kind: 'grouping', label: 'Restore your tab groups', windowId, snapshot });
+                await showToast(`Ungrouped ${grouped.length} tab${grouped.length === 1 ? '' : 's'}.`, { undoId, windowId });
+            }
+            return { ungrouped: grouped.length };
+        }));
+    }
+    if (message.action === 'plan_grouping') {
+        return respond(getTargetWindowId(sender).then(windowId => planGrouping(windowId, message.mode === 'leaf' ? 'leaf' : 'force')).then(plan => ({ plan })));
+    }
+    if (message.action === 'apply_grouping') {
+        return respond(applyGroupPlan(message.plan));
+    }
+    if (message.action === 'cluster_tabs_force' || message.action === 'cluster_tabs_leaf') {
+        const mode = message.action === 'cluster_tabs_leaf' ? 'leaf' : 'force';
+        return respond(getTargetWindowId(sender).then(async windowId => {
+            const plan = await planGrouping(windowId, mode);
+            const result = await applyGroupPlan(plan);
+            return { ...result, groups: plan.groups };
+        }));
+    }
+    if (message.action === 'plan_archive') {
+        return respond(getTargetWindowId(sender).then(async windowId => {
+            const { days, tabs } = await planStaleTabs({ windowId });
+            return { days, tabs: tabs.map(summarizeTab) };
+        }));
+    }
+    if (message.action === 'apply_archive') {
+        return respond((async () => {
+            const days = await getArchiveDays();
+            const { count, undoId } = await archiveAndCloseTabs(message.tabIds || [], 'Restore archived tabs');
+            if (count > 0) await showToast(`Archived ${count} tab${count === 1 ? '' : 's'} unused for ${days}+ days.`, { undoId });
+            return { archivedCount: count, undoId };
+        })());
+    }
+    if (message.action === 'archive_stale_tabs') {
+        return respond(getTargetWindowId(sender).then(windowId => archiveStaleTabs({ windowId })).then(archivedCount => ({ archivedCount })));
+    }
+    if (message.action === 'get_undo') {
+        return respond(peekUndo().then(entry => ({ entry: entry ? { id: entry.id, label: entry.label, createdAt: entry.createdAt } : null })));
+    }
+    if (message.action === 'undo') {
+        return respond(undoAction(message.id).then(done => {
+            if (!done) throw new Error('Nothing to undo');
+            return {};
+        }));
     }
 
-    if (message.action === 'archive_stale_tabs') {
-        archiveStaleTabs({ windowId: browserAPI.windows.WINDOW_ID_CURRENT })
-            .then(archivedCount => sendResponse({ status: 'success', archivedCount }))
-            .catch(error => sendResponse({ status: 'error', error: error.message }));
-        return true;
-    }
     if (message.action === 'get_archived_tabs') {
         Promise.all([
             getArchivedTabs(),
@@ -752,68 +787,241 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // --- Native Tab Grouping ---
-async function applyClustersToTabs(clusters) {
-    const browserAPI = typeof browser !== "undefined" ? browser : chrome;
-    if (!browserAPI.tabs.group) return;
+const GROUP_COLORS = ["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
-    const categories = {}; // Map category -> tabIds
+function isGrouped(tab) {
+    return typeof tab.groupId === 'number' && tab.groupId !== -1;
+}
 
-    for (let i = 0; i < clusters.length; i++) {
-        const cluster = clusters[i];
-        // Use Cognitive Engine name if provided, else fallback to Smart Domain Name
-        let title = cluster.name || await getSmartGroupName(cluster.embeddings);
-        
-        // Fallback
-        if (!title) {
-            if (cluster.tabs.length > 1) {
-                title = "Group " + (i + 1);
-                try { title = new URL(cluster.tabs[0].url).hostname.replace('www.', ''); } catch(e) {}
-            } else {
-                title = "Misc";
+function summarizeTab(tab) {
+    return { id: tab.id, title: tab.title || tab.url, url: tab.url, favIconUrl: tab.favIconUrl || '' };
+}
+
+/**
+ * The normal window an action applies to: the tab hosting the palette, or the last
+ * focused normal window when the palette runs in its own popup.
+ */
+async function getTargetWindowId(sender) {
+    if (sender && sender.tab && sender.tab.windowId >= 0) {
+        try {
+            const win = await browserAPI.windows.get(sender.tab.windowId);
+            if (win.type === 'normal') return win.id;
+        } catch (e) { /* fall through */ }
+    }
+    try {
+        const win = await browserAPI.windows.getLastFocused({ windowTypes: ['normal'] });
+        return win.id;
+    } catch (e) {
+        return browserAPI.windows.WINDOW_ID_CURRENT;
+    }
+}
+
+/**
+ * Proposes tab groups for a window without changing anything.
+ * mode 'force' regroups every tab; 'leaf' only places ungrouped tabs.
+ * @returns {Promise<{windowId, mode, groups: {title, color, tabIds}[], tabs: object}>}
+ */
+async function planGrouping(windowId, mode) {
+    const tabs = await browserAPI.tabs.query({ windowId });
+    // Pinned tabs cannot live in groups
+    let targetTabs = tabs.filter(t => !t.pinned);
+    if (mode === 'leaf') targetTabs = targetTabs.filter(t => !isGrouped(t));
+
+    const plan = { windowId, mode, groups: [], tabs: {} };
+    targetTabs.forEach(t => { plan.tabs[t.id] = summarizeTab(t); });
+    if (targetTabs.length <= 1) return plan;
+
+    const storage = await browserAPI.storage.local.get(['agentSettings']);
+    const s = storage.agentSettings || {};
+    let clusters = null;
+
+    // 1. Cognitive Engine (user's own AI key)
+    if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel) {
+        try {
+            const tabsJson = JSON.stringify(targetTabs.map(t => ({ id: t.id, url: t.url, title: t.title })));
+            const response = await callAgentAPI(s.cognitiveUrl, s.cognitiveKey, s.cognitiveModel, PROMPTS.GROUPING_AGENT, `INPUT TABS TO CLASSIFY:\n${tabsJson}`);
+            if (Array.isArray(response)) {
+                clusters = response.map(group => ({
+                    tabs: targetTabs.filter(t => (group.tabIds || []).includes(t.id)),
+                    name: group.groupName
+                })).filter(c => c.tabs.length > 0);
+                addLog('DECISION', 'Cognitive Engine', 'success', `Grouped ${targetTabs.length} tabs into ${clusters.length} categories.`);
             }
+        } catch (err) {
+            addLog('DECISION', 'Cognitive Engine', 'error', `Failed to group: ${err.message}. Falling back to local math.`);
+            console.error("Cognitive Engine failed, falling back to local math:", err);
         }
-        
-        if (!categories[title]) categories[title] = [];
-        cluster.tabs.forEach(t => categories[title].push(t.id));
     }
 
-    const miscTabIds = categories["Misc"] || [];
-    delete categories["Misc"];
+    // 2. Free local fallback
+    if (!clusters) {
+        clusters = await clusterTabs(targetTabs);
+        addLog('DECISION', 'Local Fallback', 'success', `Used text embeddings to group ${targetTabs.length} tabs into ${clusters.length} categories.`);
+    }
 
-    const colors = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan"];
+    // Name clusters and merge clusters that end up with the same name
+    const byTitle = new Map();
+    for (const cluster of clusters) {
+        let title = cluster.name || (cluster.embeddings ? await getSmartGroupName(cluster.embeddings) : null);
+        if (!title) {
+            title = cluster.tabs.length > 1 ? (extractHost(cluster.tabs[0].url) || 'Group') : 'Misc';
+        }
+        if (!byTitle.has(title)) byTitle.set(title, []);
+        byTitle.get(title).push(...cluster.tabs.map(t => t.id));
+    }
+    // Tabs the AI left out still need a home
+    const placed = new Set([...byTitle.values()].flat());
+    const leftovers = targetTabs.filter(t => !placed.has(t.id)).map(t => t.id);
+    if (leftovers.length) byTitle.set('Misc', [...(byTitle.get('Misc') || []), ...leftovers]);
+
     let colorIdx = 0;
+    for (const [title, tabIds] of byTitle) {
+        if (title === 'Misc') continue;
+        plan.groups.push({ title, color: GROUP_COLORS[colorIdx++ % GROUP_COLORS.length], tabIds: [...new Set(tabIds)] });
+    }
+    if (byTitle.has('Misc')) plan.groups.push({ title: 'Misc', color: 'grey', tabIds: [...new Set(byTitle.get('Misc'))] });
+    return plan;
+}
 
-    const existingGroups = browserAPI.tabGroups ? await browserAPI.tabGroups.query({ windowId: browserAPI.windows.WINDOW_ID_CURRENT }) : [];
-    const groupTitleMap = {};
-    existingGroups.forEach(g => {
-        if (g.title) groupTitleMap[g.title] = g.id;
-    });
+function extractHost(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+}
 
-    for (const [title, tabIds] of Object.entries(categories)) {
+/** Records the window's current grouping so it can be restored by Undo. */
+async function snapshotGroups(windowId) {
+    const tabs = await browserAPI.tabs.query({ windowId });
+    const groups = browserAPI.tabGroups ? await browserAPI.tabGroups.query({ windowId }) : [];
+    return {
+        tabs: tabs.map(t => ({ id: t.id, groupId: isGrouped(t) ? t.groupId : -1 })),
+        groups: groups.map(g => ({ id: g.id, title: g.title || '', color: g.color, collapsed: Boolean(g.collapsed) }))
+    };
+}
+
+async function restoreGroups(windowId, snapshot) {
+    const live = await browserAPI.tabs.query({ windowId });
+    const liveIds = new Set(live.map(t => t.id));
+    const grouped = live.filter(isGrouped).map(t => t.id);
+    if (grouped.length) await browserAPI.tabs.ungroup(grouped);
+    for (const g of snapshot.groups) {
+        const tabIds = snapshot.tabs.filter(t => t.groupId === g.id && liveIds.has(t.id)).map(t => t.id);
+        if (!tabIds.length) continue;
         try {
-            if (groupTitleMap[title]) {
-                await browserAPI.tabs.group({ groupId: groupTitleMap[title], tabIds });
+            const groupId = await browserAPI.tabs.group({ tabIds, createProperties: { windowId } });
+            await browserAPI.tabGroups.update(groupId, { title: g.title, color: g.color, collapsed: g.collapsed });
+        } catch (e) { console.error("Restoring group failed:", e); }
+    }
+}
+
+/**
+ * Applies a grouping plan (possibly edited in the preview) and offers Undo.
+ * Tabs closed since the plan was made are skipped.
+ */
+async function applyGroupPlan(plan) {
+    if (!plan || !browserAPI.tabs.group) return { grouped: 0, undoId: null };
+    const windowId = plan.windowId;
+    const snapshot = await snapshotGroups(windowId);
+    const live = await browserAPI.tabs.query({ windowId });
+    const liveIds = new Set(live.filter(t => !t.pinned).map(t => t.id));
+
+    if (plan.mode === 'force') {
+        const grouped = live.filter(isGrouped).map(t => t.id);
+        if (grouped.length && browserAPI.tabs.ungroup) await browserAPI.tabs.ungroup(grouped);
+    }
+
+    const existing = browserAPI.tabGroups ? await browserAPI.tabGroups.query({ windowId }) : [];
+    const groupByTitle = {};
+    existing.forEach(g => { if (g.title) groupByTitle[g.title] = g.id; });
+
+    let grouped = 0;
+    for (const group of plan.groups) {
+        const tabIds = group.tabIds.filter(id => liveIds.has(id));
+        if (!tabIds.length) continue;
+        const title = (group.title || '').trim() || 'Misc';
+        try {
+            if (groupByTitle[title] !== undefined) {
+                await browserAPI.tabs.group({ groupId: groupByTitle[title], tabIds });
             } else {
-                const groupId = await browserAPI.tabs.group({ tabIds });
-                const color = colors[colorIdx++ % colors.length];
+                const groupId = await browserAPI.tabs.group({ tabIds, createProperties: { windowId } });
                 if (browserAPI.tabGroups) {
-                    await browserAPI.tabGroups.update(groupId, { title, color });
+                    await browserAPI.tabGroups.update(groupId, { title, color: group.color || 'grey' });
+                    // Keep the catch-all group at the end of the tab strip
+                    if (title === 'Misc') await browserAPI.tabGroups.move(groupId, { index: -1 });
                 }
-                groupTitleMap[title] = groupId;
+                groupByTitle[title] = groupId;
             }
-        } catch(e) { console.error(e); }
+            grouped += tabIds.length;
+        } catch (e) { console.error("Grouping failed:", e); }
     }
-    
-    // Put anything the AI completely failed to classify at the bottom
-    if (miscTabIds.length > 0) {
-        try {
-            const groupId = await browserAPI.tabs.group({ tabIds: miscTabIds });
-            if (browserAPI.tabGroups) {
-                await browserAPI.tabGroups.update(groupId, { title: "Misc", color: "grey" });
-                await browserAPI.tabGroups.move(groupId, { index: -1 });
-            }
-        } catch(e) { console.error(e); }
+
+    let undoId = null;
+    if (grouped > 0) {
+        undoId = await recordUndo({ kind: 'grouping', label: 'Restore your previous tab groups', windowId, snapshot });
+        const count = plan.groups.filter(g => g.tabIds.some(id => liveIds.has(id))).length;
+        await showToast(`Organized ${grouped} tabs into ${count} group${count === 1 ? '' : 's'}.`, { undoId, windowId });
     }
+    return { grouped, undoId };
+}
+
+// --- Duplicate cleanup (preview + apply) ---
+async function planDuplicates(windowId) {
+    const tabs = await browserAPI.tabs.query({ windowId });
+    // 1. Exact URL duplicates (ignores #fragments and trailing slashes)
+    const { toClose: exact, toKeep } = planExactDuplicates(tabs);
+    // 2. Near-identical pages. The same-site bonus is disabled: two different pages on one site are not duplicates.
+    const webTabs = toKeep.filter(t => isWebUrl(t.url));
+    const clusters = await clusterTabs(webTabs, 0.95, { domainBonus: 0 });
+    const near = clusters.flatMap(cluster => planClusterClosures(cluster.tabs));
+    return {
+        windowId,
+        tabs: [
+            ...exact.map(t => ({ ...summarizeTab(t), reason: 'exact' })),
+            ...near.map(t => ({ ...summarizeTab(t), reason: 'near' }))
+        ]
+    };
+}
+
+async function applyDuplicateClosures(tabIds) {
+    const { count, undoId } = await archiveAndCloseTabs(tabIds, 'Reopen closed duplicates');
+    addLog('DECISION', 'Deduplicate Tabs', 'success', `Closed ${count} duplicate tabs (archived).`);
+    if (count > 0) await showToast(`Closed ${count} duplicate tab${count === 1 ? '' : 's'}.`, { undoId });
+    return { closed: count, undoId };
+}
+
+// --- Undo ---
+async function undoAction(id) {
+    const entry = await takeUndo(id);
+    if (!entry) return false;
+
+    if (entry.kind === 'grouping') {
+        await restoreGroups(entry.windowId, entry.snapshot);
+    } else if (entry.kind === 'close') {
+        await addDedupeBypass(entry.tabs.map(t => t.url));
+        const tabs = [...entry.tabs].sort((a, b) => (a.index || 0) - (b.index || 0));
+        let toActivate = null;
+        for (const t of tabs) {
+            const props = { url: t.url, active: false, pinned: t.pinned };
+            try {
+                await browserAPI.windows.get(t.windowId);
+                props.windowId = t.windowId;
+                if (typeof t.index === 'number') props.index = t.index;
+            } catch (e) { /* window closed: reopen in the current window */ }
+            try {
+                const created = await browserAPI.tabs.create(props);
+                if (t.archivedId) await deleteArchivedTab(t.archivedId);
+                if (t.groupId >= 0 && browserAPI.tabs.group) {
+                    try { await browserAPI.tabs.group({ groupId: t.groupId, tabIds: [created.id] }); } catch (e) { /* group gone */ }
+                }
+                if (t.active || !toActivate) toActivate = created;
+            } catch (e) { console.error("Reopening tab failed:", e); }
+        }
+        for (const r of entry.restoreUrls || []) await safeUpdateTab(r.tabId, { url: r.url });
+        if (toActivate) {
+            await safeUpdateTab(toActivate.id, { active: true });
+            await safeFocusWindow(toActivate.windowId);
+        }
+    }
+    addLog('DECISION', 'Undo', 'success', entry.label);
+    return true;
 }
 
 // --- Backup Listeners ---

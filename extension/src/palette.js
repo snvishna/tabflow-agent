@@ -1,4 +1,5 @@
 import { defaultsForKey, modelMatchesKey, isDefaultModel } from './providers.js';
+import { openPreview, isPreviewOpen, closePreview, applyPreview } from './preview.js';
 
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
 
@@ -19,6 +20,7 @@ const commands = [
     { type: 'command', title: "Close Duplicate Tabs", action: "cmd_dedupe", icon: "🧹", section: "Commands" },
     { type: 'command', title: "Archive Unused Tabs (> 3 Days)", action: "cmd_archive", icon: "📦", section: "Commands" },
     { type: 'command', title: "Recover Last Archived", action: "cmd_recover", icon: "♻️", section: "Commands" },
+    { type: 'command', title: "Undo Last Action", action: "cmd_undo", icon: "↶", section: "Commands" },
     { type: 'command', title: "Export Backup (Tabs & Archives)", action: "cmd_export_backup", icon: "💾", section: "Backup & Restore" },
     { type: 'command', title: "Import Backup", action: "cmd_import_backup", icon: "📥", section: "Backup & Restore" }
 ];
@@ -83,8 +85,17 @@ async function loadTabs() {
         return true;
     });
 
-    allItems = [...active, ...allPast];
-    renderList(allItems);
+    // Offer the most recent undoable action at the top
+    let undoItems = [];
+    try {
+        const undo = await browserAPI.runtime.sendMessage({ action: 'get_undo' });
+        if (undo && undo.entry) {
+            undoItems = [{ type: 'undo', title: `Undo: ${undo.entry.label}`, icon: '↶', undoId: undo.entry.id, section: 'Undo' }];
+        }
+    } catch (e) { /* no undo available */ }
+
+    allItems = [...undoItems, ...active, ...allPast];
+    if (!isCommandMode && !input.value) renderList(allItems);
 }
 
 function getFriendlyDate(timestamp) {
@@ -119,7 +130,7 @@ function renderList(items) {
         li.className = 'result-item';
         
         // Icon
-        if (item.type === 'command') {
+        if (item.type === 'command' || item.type === 'undo') {
             const iconSpan = document.createElement('span');
             iconSpan.className = 'result-icon';
             iconSpan.style.fontSize = '20px';
@@ -195,9 +206,46 @@ function updateSelection(newIndex) {
     items[selectedIndex].scrollIntoView({ block: 'nearest' });
 }
 
+function closeUI() {
+    if (window.parent !== window) {
+        window.parent.postMessage('close-palette', '*');
+    } else {
+        window.close();
+    }
+}
+
+function showSearchView() {
+    document.getElementById('search-header').style.display = 'flex';
+    list.style.display = 'block';
+    input.focus();
+}
+
+// Commands that change many tabs show a preview first
+const PREVIEW_COMMANDS = {
+    cmd_group_tabs_force: 'group-force',
+    cmd_group_tabs_leaf: 'group-leaf',
+    cmd_dedupe: 'dedupe',
+    cmd_archive: 'archive'
+};
+
 function executeItem(item) {
     let promise = null;
     let shouldClose = true;
+
+    if (item.type === 'command' && PREVIEW_COMMANDS[item.action]) {
+        document.getElementById('search-header').style.display = 'none';
+        list.style.display = 'none';
+        openPreview(PREVIEW_COMMANDS[item.action], { onBack: showSearchView, onDone: closeUI });
+        return;
+    }
+
+    if (item.type === 'undo' || (item.type === 'command' && item.action === 'cmd_undo')) {
+        // Wait for the undo to finish before closing the palette
+        browserAPI.runtime.sendMessage({ action: 'undo', id: item.undoId })
+            .catch(e => console.error(e))
+            .finally(closeUI);
+        return;
+    }
 
     if (item.type === 'tab') {
         promise = browserAPI.runtime.sendMessage({ action: 'switch_to_tab', tabId: item.tabId, windowId: item.windowId });
@@ -206,18 +254,10 @@ function executeItem(item) {
     } else if (item.type === 'closed_tab') {
         promise = browserAPI.runtime.sendMessage({ action: 'restore_closed_tab', sessionId: item.sessionId });
     } else if (item.type === 'command') {
-        if (item.action === 'cmd_group_tabs_force') {
-            promise = browserAPI.runtime.sendMessage({ action: 'cluster_tabs_force' });
-        } else if (item.action === 'cmd_group_tabs_leaf') {
-            promise = browserAPI.runtime.sendMessage({ action: 'cluster_tabs_leaf' });
-        } else if (item.action === 'cmd_ungroup_all') {
+        if (item.action === 'cmd_ungroup_all') {
             promise = browserAPI.runtime.sendMessage({ action: 'ungroup_all' });
         } else if (item.action === 'cmd_consolidate') {
             promise = browserAPI.runtime.sendMessage({ action: 'consolidate_windows' });
-        } else if (item.action === 'cmd_dedupe') {
-            promise = browserAPI.runtime.sendMessage({ action: 'deduplicate_tabs' });
-        } else if (item.action === 'cmd_archive') {
-            promise = browserAPI.runtime.sendMessage({ action: 'archive_stale_tabs' });
         } else if (item.action === 'cmd_recover') {
             promise = browserAPI.runtime.sendMessage({ action: 'recover_last_archived' });
         } else if (item.action === 'cmd_export_backup') {
@@ -256,14 +296,6 @@ function executeItem(item) {
             fileInput.click();
         } else {
             console.log("Command not implemented yet:", item.action);
-        }
-    }
-
-    function closeUI() {
-        if (window.parent !== window) {
-            window.parent.postMessage('close-palette', '*');
-        } else {
-            window.close();
         }
     }
 
@@ -327,6 +359,21 @@ input.addEventListener('input', (e) => {
 
 // Keyboard Navigation
 document.addEventListener('keydown', (e) => {
+    if (isPreviewOpen()) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closePreview();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (document.activeElement && document.activeElement.classList.contains('group-name')) {
+                document.getElementById('btn-preview-apply').focus();
+            } else {
+                applyPreview();
+            }
+        }
+        return;
+    }
+
     if (e.key === 'Escape') {
         if (window.parent !== window) {
             window.parent.postMessage('close-palette', '*');
