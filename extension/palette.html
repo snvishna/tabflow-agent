@@ -13,6 +13,21 @@
             <div id="settings-trigger" style="display: none; cursor: pointer; font-size: 13px; font-weight: 600; margin-left: 10px; opacity: 0.9; transition: 0.2s; background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 16px; white-space: nowrap; color: #fff; border: 1px solid rgba(255,255,255,0.05);" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'" title="Configure AI Models & Keys">⚙️ Settings</div>
         </div>
         <ul id="results-list"></ul>
+
+        <div id="preview-view" hidden>
+            <div id="preview-header">
+                <div id="preview-title" role="status" aria-live="polite"></div>
+                <div id="preview-subtitle"></div>
+            </div>
+            <div id="preview-body"></div>
+            <div id="preview-actions">
+                <span class="preview-hint">Enter to apply · Esc to go back</span>
+                <div>
+                    <button id="btn-preview-cancel" type="button">Back</button>
+                    <button id="btn-preview-apply" type="button" disabled>Apply</button>
+                </div>
+            </div>
+        </div>
         
         <div id="settings-view" style="display: none;">
             <h3>AI Configuration</h3>

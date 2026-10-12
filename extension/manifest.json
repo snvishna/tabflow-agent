@@ -23,6 +23,12 @@
         "mac": "Command+Shift+Space"
       },
       "description": "Open Tab Command Palette"
+    },
+    "undo-last-action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Z"
+      },
+      "description": "Undo the last TabFlow action"
     }
   },
   "action": {
@@ -40,7 +46,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["palette.html", "src/palette.js", "src/palette.css", "src/providers.js"],
+      "resources": ["palette.html", "src/palette.js", "src/palette.css", "src/providers.js", "src/preview.js"],
       "matches": ["<all_urls>"]
     }
   ],
