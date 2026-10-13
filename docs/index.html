@@ -18,6 +18,7 @@
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#privacy">Privacy</a>
+            <a href="#ai-keys">AI keys</a>
             <a href="#shortcuts">Shortcuts</a>
             <a href="https://github.com/snvishna/tabflow-agent" class="btn btn-ghost">GitHub</a>
         </div>
@@ -122,10 +123,41 @@
                 <p class="eyebrow">Private by default</p>
                 <h2>Your tabs stay on your device.</h2>
                 <p>Grouping and duplicate detection run in your browser with a small open-source AI model (about 25&nbsp;MB, downloaded once and cached). No account, no tracking, no data collected by us.</p>
-                <p><strong>Want sharper group names?</strong> Optionally add your own Claude, OpenAI or Gemini API key (or any OpenAI-compatible endpoint). Tab titles and addresses then go to that provider only, and only for the features you use.</p>
+                <p><strong>Want sharper group names?</strong> Optionally <a href="#ai-keys">bring your own AI key</a>. Tab titles and addresses then go to that provider only, and only for the features you use.</p>
                 <p><a href="https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md">Read the privacy policy →</a></p>
             </div>
             <figure class="shot"><img src="assets/5-welcome.png" width="1280" height="800" loading="lazy" alt="The TabFlow welcome page showing the shortcut and an Organize this window step."></figure>
+        </section>
+
+        <section id="ai-keys" class="byok">
+            <p class="eyebrow center">Optional</p>
+            <h2 class="section-title">Bring your own AI key</h2>
+            <p class="section-lede">TabFlow works fully without one. Add a key from a provider you already use and it takes over the parts it's good at: smarter group names, and judging whether two different pages on the same site belong in one tab. You pay that provider directly for the tokens you use; TabFlow never sees or resells them.</p>
+            <ol class="steps">
+                <li><span class="step-num">1</span><div><h3>Open Settings</h3><p>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>, type <kbd>&gt;</kbd>, choose <strong>Settings</strong>.</p></div></li>
+                <li><span class="step-num">2</span><div><h3>Paste your key</h3><p>TabFlow recognizes the provider from the key and fills in its endpoint and a fast default model.</p></div></li>
+                <li><span class="step-num">3</span><div><h3>Optionally split engines</h3><p>Use one model for grouping and a cheaper, faster one for duplicates, or any OpenAI-compatible endpoint.</p></div></li>
+            </ol>
+            <div class="table-wrap">
+                <table class="providers">
+                    <thead>
+                        <tr><th scope="col">Provider</th><th scope="col">Key starts with</th><th scope="col">Used for</th><th scope="col">Default model</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><th scope="row"><a href="https://console.anthropic.com/settings/keys">Claude (Anthropic)</a></th><td><code>sk-ant-</code></td><td>Grouping &amp; duplicates</td><td><code>claude-haiku-5-5</code></td></tr>
+                        <tr><th scope="row"><a href="https://platform.openai.com/api-keys">OpenAI</a></th><td><code>sk-</code></td><td>Grouping &amp; duplicates</td><td><code>gpt-4.1-mini</code></td></tr>
+                        <tr><th scope="row"><a href="https://aistudio.google.com/apikey">Gemini (Google)</a></th><td><code>AIza</code> or <code>AQ</code></td><td>Grouping &amp; duplicates</td><td><code>gemini-3.6-flash</code></td></tr>
+                        <tr><th scope="row"><a href="https://typesafe.ai">Jev (TypeSafe)</a></th><td><code>apikey_</code></td><td>Duplicates (fast classifier)</td><td><code>jev-latest</code></td></tr>
+                        <tr><th scope="row">Any OpenAI-compatible API</th><td>anything</td><td>Grouping &amp; duplicates</td><td>Enter Base URL and model under split engines (e.g. Groq)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <ul class="checks byok-notes">
+                <li>Keys are stored only in your browser's extension storage. Remove one in Settings and remote calls stop immediately.</li>
+                <li>Only tab titles and addresses are sent, never page content, and only to the provider you chose.</li>
+                <li>Settings → Activity Log shows each AI decision with token counts, so you can see what you're spending.</li>
+                <li>If a call fails or times out, TabFlow falls back to the on-device AI for grouping and leaves your tabs alone.</li>
+            </ul>
         </section>
 
         <section id="shortcuts" class="shortcuts">

@@ -31,13 +31,19 @@ echo "🗜️ Creating Firefox ZIP (tabflow-firefox.zip)..."
 cp extension/manifest.json "$STAGE/manifest.json"
 node -e "const fs = require('fs'); const f = process.argv[1]; const m = JSON.parse(fs.readFileSync(f)); delete m.background.service_worker; m.background.scripts = ['dist/background.js']; fs.writeFileSync(f, JSON.stringify(m, null, 2));" "$STAGE/manifest.json"
 (cd "$STAGE" && zip -qr - . -x ".*" "*/.*") > tabflow-firefox.zip
+
+# Unpacked Firefox build for development (about:debugging -> Load Temporary Add-on -> build/firefox-dev/manifest.json).
+# Temporary add-ons start with empty storage, so it includes extension/config.json (if present) to re-seed your API keys.
+rm -rf build/firefox-dev && mkdir -p build && cp -r "$STAGE" build/firefox-dev
+[ -f extension/config.json ] && cp extension/config.json build/firefox-dev/
 rm -rf "$STAGE"
 
 # 5. Create the Source Code ZIP (Required by Firefox AMO)
 echo "🗜️ Creating Source Code ZIP (tabflow-source.zip)..."
-zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" "*/config.json" "config.json" "store-assets/*" "docs/assets/*" > /dev/null
+zip -r tabflow-source.zip . -x "node_modules/*" "*/node_modules/*" ".git/*" ".DS_Store" "*.zip" ".venv/*" "*/.venv/*" "*/__pycache__/*" "*/config.json" "config.json" "store-assets/*" "docs/assets/*" "build/*" > /dev/null
 
 echo "✅ Done!"
 echo "➡️  tabflow-chrome.zip    : Upload this to the Chrome Web Store."
 echo "➡️  tabflow-firefox.zip   : Upload this to Firefox AMO as the main package."
 echo "➡️  tabflow-source.zip    : Upload this to Firefox AMO in the 'Source Code' field."
+echo "🛠️  build/firefox-dev/    : Load as a Temporary Add-on in Firefox for development (never upload)."

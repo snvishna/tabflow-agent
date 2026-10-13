@@ -3,7 +3,7 @@ import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, b
 import { PROMPTS } from './prompts.js';
 import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, withSettingDefaults, urlMatchesDomains, cosineSimilarity } from './utils.js';
 import { pickGroupForTab } from './autogroup.js';
-import { defaultsForKey } from './providers.js';
+import { defaultsForKey, isReflexOnlyKey, isReflexOnlyUrl } from './providers.js';
 import { recordUndo, peekUndo, takeUndo, describeClosedTab } from './undo.js';
 import { showToast } from './toast.js';
 import { refreshBadge, scheduleBadgeRefresh, flashBadge } from './badge.js';
@@ -45,21 +45,22 @@ async function seedConfig() {
         const config = await res.json();
         const storage = await browserAPI.storage.local.get(['agentSettings']);
         const s = storage.agentSettings || {};
-        // Only overwrite if UI settings are empty
-        if (!s.cognitiveKey) {
-            const defaults = defaultsForKey(config.cognitiveKey);
-            const newSettings = {
-                ...s,
-                cognitiveKey: config.cognitiveKey || '',
-                cognitiveUrl: config.cognitiveUrl || defaults.url,
-                cognitiveModel: config.cognitiveModel || defaults.model,
-                reflexKey: config.reflexKey || config.cognitiveKey || '',
-                reflexUrl: config.reflexUrl || config.cognitiveUrl || defaults.url,
-                reflexModel: config.reflexModel || config.cognitiveModel || defaults.model
-            };
-            await browserAPI.storage.local.set({ agentSettings: newSettings });
-            console.log("[Setup] Seeded API keys from config.json");
-        }
+        // Only fill in keys the user has not set in Settings
+        if (s.cognitiveKey || s.reflexKey) return;
+        const cognitiveKey = config.cognitiveKey || '';
+        const reflexKey = config.reflexKey || cognitiveKey;
+        const cog = isReflexOnlyKey(cognitiveKey) ? { url: '', model: '' } : defaultsForKey(cognitiveKey);
+        const ref = defaultsForKey(reflexKey);
+        await browserAPI.storage.local.set({ agentSettings: {
+            ...s,
+            cognitiveKey,
+            cognitiveUrl: config.cognitiveUrl || cog.url,
+            cognitiveModel: config.cognitiveModel || cog.model,
+            reflexKey,
+            reflexUrl: config.reflexUrl || ref.url,
+            reflexModel: config.reflexModel || ref.model
+        } });
+        console.log("[Setup] Seeded API keys from config.json");
     } catch (e) { /* no config.json in store builds */ }
 }
 
@@ -889,7 +890,7 @@ async function planGrouping(windowId, mode) {
     let clusters = null;
 
     // 1. Cognitive Engine (user's own AI key)
-    if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel) {
+    if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel && !isReflexOnlyUrl(s.cognitiveUrl)) {
         try {
             const tabsJson = JSON.stringify(targetTabs.map(t => ({ id: t.id, url: t.url, title: t.title })));
             const response = await callAgentAPI(s.cognitiveUrl, s.cognitiveKey, s.cognitiveModel, PROMPTS.GROUPING_AGENT, `INPUT TABS TO CLASSIFY:\n${tabsJson}`);

@@ -34,10 +34,26 @@
 
 **Free and private by default.** Duplicate detection is a local URL match plus your site rules. Grouping uses a small open-source text-embedding model ([`Xenova/all-MiniLM-L6-v2`](https://huggingface.co/Xenova/all-MiniLM-L6-v2), about 25 MB) that runs in your browser: it is downloaded once from huggingface.co on first use and cached. No account, no telemetry, nothing sent to us.
 
-**Optional: bring your own API key.** In **Settings**, paste a Claude, OpenAI, Gemini or TypeSafe key; TabFlow detects the provider and fills in a default endpoint and model. Advanced settings take any OpenAI-compatible endpoint (e.g. Groq) and let you use a different model for each engine:
+### 🔑 Bring your own AI key (optional)
 
-- **Cognitive Engine (grouping)**: a generative model names and organizes your tabs into groups.
-- **Reflex Engine (duplicates)**: when a new tab opens a different page on a site you already have open, a fast model decides whether to reuse the existing tab (single-instance apps like dashboards or webmail) or keep both (products, docs, search). Decisions are cached.
+TabFlow works fully without a key. Add one from a provider you already use and it takes over grouping (smarter group names) and/or the duplicate decision for different pages on the same site. You pay the provider directly for the tokens you use.
+
+1. Press `Ctrl/Cmd+Shift+Space`, type `>`, choose **Settings**.
+2. Paste your key into **Main API Key**. TabFlow detects the provider and fills in its endpoint and default model.
+3. Optional: turn on **Use split engines** to use a different key, endpoint or model for each engine.
+
+| Provider | Key starts with | Used for | Default model |
+|---|---|---|---|
+| [Claude (Anthropic)](https://console.anthropic.com/settings/keys) | `sk-ant-` | Grouping & duplicates | `claude-haiku-5-5` |
+| [OpenAI](https://platform.openai.com/api-keys) | `sk-` | Grouping & duplicates | `gpt-4.1-mini` |
+| [Gemini (Google)](https://aistudio.google.com/apikey) | `AIza` / `AQ` | Grouping & duplicates | `gemini-3.6-flash` |
+| [Jev (TypeSafe)](https://typesafe.ai) | `apikey_` | Duplicates only (fast classifier) | `jev-latest` |
+| Any OpenAI-compatible API (Groq, Together…) | anything | Grouping & duplicates | enter Base URL + model under split engines |
+
+- **Cognitive Engine (grouping)**: a generative model names and organizes your tabs into groups. Falls back to the on-device model if the call fails.
+- **Reflex Engine (duplicates)**: when a new tab opens a different page on a site you already have open, a fast model decides whether to reuse the existing tab (single-instance apps like dashboards or webmail) or keep both (products, docs, search). Decisions are cached; if the call fails, both tabs stay open.
+- A Jev key in **Main API Key** powers duplicates only; grouping keeps using the on-device model. A typical setup is Claude/OpenAI/Gemini as the main key and Jev as the separate Reflex key.
+- **Settings → Activity Log** shows each AI decision with token counts.
 
 With a key set, only tab titles and URLs are sent, and only to the provider you chose. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
@@ -76,7 +92,9 @@ npm run build          # bundles src/background.js into dist/ with esbuild
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the `extension` folder.
 
-**Firefox (142+):** install from [AMO](https://addons.mozilla.org/addon/tabflow-agent/), or for development run `bash scripts/pack.sh` from the repo root, open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `tabflow-firefox.zip`.
+**Firefox (142+):** install from [AMO](https://addons.mozilla.org/addon/tabflow-agent/), or for development run `bash scripts/pack.sh` from the repo root, open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `build/firefox-dev/manifest.json`.
+
+> **Keep your API keys across reloads.** Firefox gives a temporary add-on empty storage each time it is loaded, so keys typed into Settings don't survive. Copy `extension/config.example.json` to `extension/config.json` (git-ignored, never packaged for the stores) and put your keys there; `build/firefox-dev/` includes it and TabFlow fills Settings from it on install.
 
 ---
 
