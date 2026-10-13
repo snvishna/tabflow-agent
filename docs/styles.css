@@ -210,6 +210,19 @@ h1 {
     border-radius: 28px;
 }
 
+/* Bring your own key */
+.byok { max-width: 1140px; margin: 0 auto; padding: 4rem 16px; }
+.byok .section-title { margin-bottom: 1rem; }
+.eyebrow.center { text-align: center; }
+.section-lede { max-width: 720px; margin: 0 auto 2.5rem; text-align: center; color: var(--text-2); font-size: 1.05rem; }
+.steps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+.steps li { display: flex; gap: 1rem; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; }
+.step-num { flex: none; width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.steps h3 { font-size: 1.05rem; margin-bottom: 0.3rem; }
+.steps p { color: var(--text-2); font-size: 0.95rem; }
+.providers thead th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); width: auto; }
+.byok-notes { max-width: 820px; margin: 2rem auto 0; }
+
 /* Shortcuts table */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 table { width: 100%; border-collapse: collapse; }
@@ -239,6 +252,8 @@ footer {
     .privacy { margin: 2rem 16px; padding: 1.75rem; }
     .nav-links a:not(.btn) { display: none; }
     th { white-space: normal; width: auto; }
-    th, td { display: block; }
-    th { border-bottom: none; padding-bottom: 0.2rem; }
+    .shortcuts th, .shortcuts td { display: block; }
+    .shortcuts th { border-bottom: none; padding-bottom: 0.2rem; }
+    .providers { font-size: 0.85rem; }
+    .providers th, .providers td { padding: 0.7rem 0.6rem; }
 }

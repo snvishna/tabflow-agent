@@ -1,4 +1,4 @@
-import { defaultsForKey, modelMatchesKey, isDefaultModel } from './providers.js';
+import { defaultsForKey, modelMatchesKey, isDefaultModel, detectProvider, isReflexOnlyKey } from './providers.js';
 import { openPreview, isPreviewOpen, closePreview, applyPreview } from './preview.js';
 
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
@@ -497,6 +497,7 @@ function openSettings() {
     browserAPI.runtime.sendMessage({ action: 'get_settings' }).then(s => {
         const mainKey = s.cognitiveKey || '';
         document.getElementById('setting-main-key').value = mainKey;
+        showKeyHint('main-key-hint', mainKey);
         
         document.getElementById('setting-reflex-url').value = s.reflexUrl || '';
         document.getElementById('setting-reflex-key').value = (s.reflexKey && s.reflexKey !== mainKey) ? s.reflexKey : '';
@@ -509,6 +510,7 @@ function openSettings() {
         if (s.reflexKey && s.reflexKey !== mainKey) useAdvanced = true;
         if (s.reflexUrl && s.reflexUrl !== s.cognitiveUrl) useAdvanced = true;
         if (s.reflexModel && s.reflexModel !== s.cognitiveModel) useAdvanced = true;
+        showKeyHint('reflex-key-hint', document.getElementById('setting-reflex-key').value);
         if (s.cognitiveUrl && !s.cognitiveUrl.includes('api.anthropic.com') && !s.cognitiveUrl.includes('api.openai.com') && !s.cognitiveUrl.includes('generativelanguage.googleapis.com') && s.cognitiveUrl !== '') useAdvanced = true;
         if (s.cognitiveModel && !isDefaultModel(s.cognitiveModel)) useAdvanced = true;
 
@@ -528,6 +530,30 @@ document.getElementById('advanced-toggle').addEventListener('change', (e) => {
     document.getElementById('advanced-settings').style.display = e.target.checked ? 'block' : 'none';
 });
 
+const KEY_HINTS = {
+    'main-key-hint': 'Optional. Auto-detects Claude, OpenAI, Gemini or Jev keys. Leave blank to use the free on-device AI.',
+    'reflex-key-hint': ''
+};
+
+/** Explains what a pasted key will be used for, or asks for the endpoint when the key is not recognized. */
+function showKeyHint(hintId, key) {
+    const hint = document.getElementById(hintId);
+    if (!hint) return;
+    hint.classList.remove('warning');
+    if (!key) {
+        hint.textContent = KEY_HINTS[hintId];
+    } else if (!detectProvider(key)) {
+        hint.textContent = 'Could not tell which provider this key is for. Turn on split engines and enter its Base URL and Model.';
+        hint.classList.add('warning');
+    } else if (isReflexOnlyKey(key)) {
+        hint.textContent = hintId === 'main-key-hint'
+            ? 'Jev key detected: it powers duplicate detection (Reflex Engine). Grouping keeps using the free on-device AI.'
+            : 'Jev key detected: it powers duplicate detection.';
+    } else {
+        hint.textContent = hintId === 'main-key-hint' ? 'Key detected: it powers grouping and duplicate detection.' : 'Key detected.';
+    }
+}
+
 function autoPopulateFields(key, urlInput, modelInput) {
     if (!key) return;
     const defaults = defaultsForKey(key);
@@ -546,8 +572,15 @@ document.getElementById('setting-main-key').addEventListener('input', (e) => {
     const refModel = document.getElementById('setting-reflex-model');
     const refKey = document.getElementById('setting-reflex-key');
     
-    // Auto-populate Cognitive Engine
-    autoPopulateFields(key, cogUrl, cogModel);
+    showKeyHint('main-key-hint', key);
+
+    // Auto-populate Cognitive Engine (a reflex-only key such as Jev cannot group tabs)
+    if (isReflexOnlyKey(key)) {
+        cogUrl.value = '';
+        cogModel.value = '';
+    } else {
+        autoPopulateFields(key, cogUrl, cogModel);
+    }
     
     // Only auto-populate Reflex Engine if the user hasn't explicitly set a separate Reflex Key
     if (!refKey.value.trim()) {
@@ -559,7 +592,8 @@ document.getElementById('setting-reflex-key').addEventListener('input', (e) => {
     const key = e.target.value.trim();
     const refUrl = document.getElementById('setting-reflex-url');
     const refModel = document.getElementById('setting-reflex-model');
-    
+
+    showKeyHint('reflex-key-hint', key);
     autoPopulateFields(key, refUrl, refModel);
 });
 
@@ -576,10 +610,11 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
     let s = {};
     if (!useAdvanced) {
         const defaults = defaultsForKey(mainKey);
+        const canGroup = !isReflexOnlyKey(mainKey);
         s = {
             cognitiveKey: mainKey,
-            cognitiveUrl: defaults.url,
-            cognitiveModel: defaults.model,
+            cognitiveUrl: canGroup ? defaults.url : '',
+            cognitiveModel: canGroup ? defaults.model : '',
             reflexKey: mainKey,
             reflexUrl: defaults.url,
             reflexModel: defaults.model

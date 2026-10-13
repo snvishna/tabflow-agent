@@ -35688,7 +35688,7 @@ function detectProvider(key) {
   if (!key) return null;
   if (key.startsWith("sk-ant-")) return "anthropic";
   if (key.startsWith("AIza") || key.startsWith("AQ")) return "gemini";
-  if (key.startsWith("ts-") || key.startsWith("jev-")) return "typesafe";
+  if (key.startsWith("apikey_") || key.startsWith("ts-") || key.startsWith("jev-")) return "typesafe";
   if (key.startsWith("sk-")) return "openai";
   return null;
 }
@@ -35698,13 +35698,21 @@ function defaultsForKey(key) {
   const { url: url2, model } = PROVIDER_DEFAULTS[provider];
   return { url: url2, model };
 }
+function isReflexOnlyKey(key) {
+  const provider = detectProvider(key);
+  return Boolean(provider && PROVIDER_DEFAULTS[provider].reflexOnly);
+}
+function isReflexOnlyUrl(url2) {
+  return Boolean(url2) && Object.values(PROVIDER_DEFAULTS).some((p) => p.reflexOnly && url2.includes(new URL(p.url).hostname));
+}
 var PROVIDER_DEFAULTS;
 var init_providers = __esm({
   "src/providers.js"() {
     PROVIDER_DEFAULTS = {
       anthropic: { url: "https://api.anthropic.com/v1/messages", model: "claude-haiku-5-5", modelPrefixes: ["claude"] },
       gemini: { url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: "gemini-3.6-flash", modelPrefixes: ["gemini"] },
-      typesafe: { url: "https://api.typesafe.ai/v1/systemone", model: "jev-latest", modelPrefixes: ["jev"] },
+      // Jev is a classifier: it answers the Reflex Engine's reuse/new-tab question but cannot group tabs
+      typesafe: { url: "https://api.typesafe.ai/v1/systemone", model: "jev-latest", modelPrefixes: ["jev"], reflexOnly: true },
       openai: { url: "https://api.openai.com/v1/chat/completions", model: "gpt-4.1-mini", modelPrefixes: ["gpt", "o1", "o3", "o4"] }
     };
   }
@@ -35942,20 +35950,21 @@ var require_background = __commonJS({
         const config = await res.json();
         const storage = await browserAPI4.storage.local.get(["agentSettings"]);
         const s = storage.agentSettings || {};
-        if (!s.cognitiveKey) {
-          const defaults = defaultsForKey(config.cognitiveKey);
-          const newSettings = {
-            ...s,
-            cognitiveKey: config.cognitiveKey || "",
-            cognitiveUrl: config.cognitiveUrl || defaults.url,
-            cognitiveModel: config.cognitiveModel || defaults.model,
-            reflexKey: config.reflexKey || config.cognitiveKey || "",
-            reflexUrl: config.reflexUrl || config.cognitiveUrl || defaults.url,
-            reflexModel: config.reflexModel || config.cognitiveModel || defaults.model
-          };
-          await browserAPI4.storage.local.set({ agentSettings: newSettings });
-          console.log("[Setup] Seeded API keys from config.json");
-        }
+        if (s.cognitiveKey || s.reflexKey) return;
+        const cognitiveKey = config.cognitiveKey || "";
+        const reflexKey = config.reflexKey || cognitiveKey;
+        const cog = isReflexOnlyKey(cognitiveKey) ? { url: "", model: "" } : defaultsForKey(cognitiveKey);
+        const ref = defaultsForKey(reflexKey);
+        await browserAPI4.storage.local.set({ agentSettings: {
+          ...s,
+          cognitiveKey,
+          cognitiveUrl: config.cognitiveUrl || cog.url,
+          cognitiveModel: config.cognitiveModel || cog.model,
+          reflexKey,
+          reflexUrl: config.reflexUrl || ref.url,
+          reflexModel: config.reflexModel || ref.model
+        } });
+        console.log("[Setup] Seeded API keys from config.json");
       } catch (e) {
       }
     }
@@ -36666,7 +36675,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       if (targetTabs.length <= 1) return plan;
       const s = await getSettings();
       let clusters = null;
-      if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel) {
+      if (s.cognitiveUrl && s.cognitiveKey && s.cognitiveModel && !isReflexOnlyUrl(s.cognitiveUrl)) {
         try {
           const tabsJson = JSON.stringify(targetTabs.map((t) => ({ id: t.id, url: t.url, title: t.title })));
           const response = await callAgentAPI(s.cognitiveUrl, s.cognitiveKey, s.cognitiveModel, PROMPTS.GROUPING_AGENT, `INPUT TABS TO CLASSIFY:

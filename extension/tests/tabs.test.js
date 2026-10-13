@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, sanitizeArchiveDays } from '../src/utils.js';
-import { detectProvider, defaultsForKey, modelMatchesKey, isDefaultModel } from '../src/providers.js';
+import { detectProvider, defaultsForKey, modelMatchesKey, isDefaultModel, isReflexOnlyKey, isReflexOnlyUrl } from '../src/providers.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const tab = (id, url, extra = {}) => ({ id, url, lastAccessed: 0, ...extra });
@@ -102,6 +102,8 @@ describe('providers', () => {
         expect(detectProvider('AIzaXYZ')).toBe('gemini');
         expect(detectProvider('AQ.abc')).toBe('gemini');
         expect(detectProvider('jev-1')).toBe('typesafe');
+        expect(detectProvider('apikey_abc123')).toBe('typesafe');
+        expect(defaultsForKey('apikey_abc123')).toEqual({ url: 'https://api.typesafe.ai/v1/systemone', model: 'jev-latest' });
         expect(detectProvider('random')).toBe(null);
     });
     it('returns defaults for known keys and blanks otherwise', () => {
@@ -112,6 +114,14 @@ describe('providers', () => {
         expect(modelMatchesKey('sk-ant-x', 'claude-sonnet-5-5')).toBe(true);
         expect(modelMatchesKey('sk-ant-x', 'gpt-4.1-mini')).toBe(false);
         expect(modelMatchesKey('sk-x', 'gpt-4o')).toBe(true);
+    });
+    it('marks Jev as reflex-only so it is never used for grouping', () => {
+        expect(isReflexOnlyKey('apikey_abc')).toBe(true);
+        expect(isReflexOnlyKey('sk-ant-x')).toBe(false);
+        expect(isReflexOnlyKey('random')).toBe(false);
+        expect(isReflexOnlyUrl('https://api.typesafe.ai/v1/systemone')).toBe(true);
+        expect(isReflexOnlyUrl('https://api.openai.com/v1/chat/completions')).toBe(false);
+        expect(isReflexOnlyUrl('')).toBe(false);
     });
     it('recognises built-in default models', () => {
         expect(isDefaultModel(defaultsForKey('AIza1').model)).toBe(true);

@@ -272,6 +272,8 @@ span.result-icon {
     margin-top: 4px;
     margin-bottom: 8px;
 }
+.settings-hint-inline.warning { color: var(--warning); }
+.settings-hint-inline:empty { display: none; }
 
 .shortcut-list {
     display: grid;

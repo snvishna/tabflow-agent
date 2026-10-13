@@ -45,8 +45,8 @@
             
             <div class="setting-group">
                 <label for="setting-main-key">Main API Key (Grouping &amp; Deduplication)</label>
-                <input type="password" id="setting-main-key" placeholder="Paste Claude, OpenAI, or Gemini Key…">
-                <div class="settings-hint-inline" id="main-key-hint">Optional. Auto-detects Claude, OpenAI, or Gemini. Leave blank to use the free on-device AI.</div>
+                <input type="password" id="setting-main-key" placeholder="Paste a Claude, OpenAI, Gemini or Jev key…">
+                <div class="settings-hint-inline" id="main-key-hint" role="status">Optional. Auto-detects Claude, OpenAI, Gemini or Jev keys. Leave blank to use the free on-device AI.</div>
             </div>
 
             <label class="check-row plain">
@@ -67,7 +67,8 @@
                 </div>
                 <div class="setting-group compact">
                     <label for="setting-reflex-key">Reflex Engine (Deduplication)</label>
-                    <input type="password" id="setting-reflex-key" placeholder="Separate API Key (if different)">
+                    <input type="password" id="setting-reflex-key" placeholder="Separate API Key (if different, e.g. Jev)">
+                    <div class="settings-hint-inline" id="reflex-key-hint" role="status"></div>
                     <div class="field-row">
                         <input type="text" id="setting-reflex-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" aria-label="Reflex engine URL" class="grow-2">
                         <input type="text" id="setting-reflex-model" placeholder="Model (e.g. llama-3.1-8b-instant)" aria-label="Reflex engine model" class="grow-1">
