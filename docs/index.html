@@ -6,9 +6,13 @@
     <title>TabFlow Agent: duplicate-free, organized browser tabs</title>
     <meta name="description" content="TabFlow Agent stops duplicate tabs, groups related tabs, and finds any open, closed or archived tab from one shortcut. Private on-device AI, undo for everything. Free and open source.">
     <meta name="color-scheme" content="light dark">
-    <meta property="og:title" content="TabFlow Agent">
-    <meta property="og:description" content="Stops duplicate tabs, groups related tabs, and finds any tab from one shortcut. Private on-device AI, undo for everything.">
+    <link rel="canonical" href="https://snvishna.github.io/tabflow-agent/">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://snvishna.github.io/tabflow-agent/">
+    <meta property="og:title" content="TabFlow Agent: duplicate-free, organized browser tabs">
+    <meta property="og:description" content="Stops duplicate tabs, groups related tabs, and finds any tab from one shortcut. Private on-device AI, undo for everything. Free for Chrome and Firefox.">
     <meta property="og:image" content="https://snvishna.github.io/tabflow-agent/assets/1-search-tabs.png">
+    <meta name="twitter:card" content="summary_large_image">
     <link rel="icon" type="image/png" href="assets/icon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -17,10 +21,11 @@
         <a class="logo" href="#top"><img src="assets/icon.png" alt="" width="28" height="28"> TabFlow Agent</a>
         <div class="nav-links">
             <a href="#features">Features</a>
-            <a href="#privacy">Privacy</a>
             <a href="#ai-keys">AI keys</a>
+            <a href="#faq">Architecture &amp; FAQ</a>
             <a href="#shortcuts">Shortcuts</a>
-            <a href="https://github.com/snvishna/tabflow-agent" class="btn btn-ghost">GitHub</a>
+            <a href="https://github.com/snvishna/tabflow-agent">GitHub</a>
+            <a href="#install" class="btn btn-ghost" id="nav-install">Install free</a>
         </div>
     </nav>
 
@@ -29,11 +34,12 @@
             <a class="pill" href="#whats-new">New in 1.1: undo for everything, previews, site rules →</a>
             <h1>Your tabs, organized<br>as you browse.</h1>
             <p class="lede">TabFlow Agent stops duplicate tabs, groups related tabs by topic, and finds any open, closed or archived tab from one shortcut. It runs on your device and never closes anything you can't get back.</p>
-            <div class="cta">
-                <a class="btn btn-primary" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
-                <a class="btn btn-ghost" href="https://github.com/snvishna/tabflow-agent#-quickstart-installation">Chrome &amp; Edge: install from source</a>
+            <div class="cta" id="install">
+                <a class="btn btn-primary" id="hero-add-chrome" href="https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg">Add to Chrome</a>
+                <a class="btn btn-primary" id="hero-add-firefox" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
+                <a class="btn btn-ghost" id="hero-github" href="https://github.com/snvishna/tabflow-agent">View on GitHub</a>
             </div>
-            <p class="meta">Free and open source · No account · Chrome Web Store and Edge Add-ons listings coming soon</p>
+            <p class="meta">Free and open source · No account · Also works in Edge, Brave and other Chromium browsers via the Chrome Web Store</p>
             <figure class="shot shot-hero">
                 <img src="assets/1-search-tabs.png" width="1280" height="800" alt="The TabFlow command palette over a web page, searching open, recently closed and archived tabs.">
             </figure>
@@ -74,6 +80,7 @@
                     <h2>Find any tab. Run any command.</h2>
                     <p>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> (<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> on Mac) or click the toolbar icon to search every open, recently closed and archived tab. Type <kbd>&gt;</kbd> for commands.</p>
                     <ul class="checks">
+                        <li>Type a few words in any order: "invoice march" finds "March Invoice – Gmail". Titles and addresses both count.</li>
                         <li>Fully keyboard driven, in light or dark mode.</li>
                         <li>The toolbar icon shows your tab count at a glance.</li>
                     </ul>
@@ -93,7 +100,7 @@
                 <div class="card">
                     <div class="card-icon" aria-hidden="true">📦</div>
                     <h3>Archive, don't lose</h3>
-                    <p>Archive tabs you haven't used in a few days (you choose how many), by hand or automatically. They stay searchable and restorable for 90 days.</p>
+                    <p>Tabs you haven't touched in a few days (you choose how many) can be tidied away by hand, or automatically every hour if you turn it on. They stay searchable and restorable for 90 days.</p>
                 </div>
                 <div class="card">
                     <div class="card-icon" aria-hidden="true">📏</div>
@@ -160,6 +167,92 @@
             </ul>
         </section>
 
+        <section id="faq" class="faq-section">
+            <p class="eyebrow center">Architecture &amp; FAQs</p>
+            <h2 class="section-title">Frequently Asked Questions</h2>
+            <div class="faq-list">
+                <details class="faq-item" open>
+                    <summary class="faq-question">How is tab grouping done under the hood?</summary>
+                    <div class="faq-answer">
+                        <p>TabFlow supports two intelligent grouping modes:</p>
+                        <ul>
+                            <li><strong>Local on-device AI (default):</strong> Runs a quantized <code>all-MiniLM-L6-v2</code> text embedding model in WebAssembly via ONNX inside the browser service worker. It converts tab titles and domains into 384-dimensional vectors, performs agglomerative cosine clustering with domain weighting, and assigns category names using zero-shot semantic matching. <strong>100% of your data stays on your machine.</strong></li>
+                            <li><strong>Cognitive Engine (optional API key):</strong> When you provide your own API key (Claude, OpenAI, Gemini, or any OpenAI-compatible API), a generative LLM generates highly contextual, bespoke group names and topic clusters. If the remote call times out (15 s) or fails, it automatically falls back to the on-device model.</li>
+                        </ul>
+                        <p>In all cases, TabFlow generates a <strong>preview plan</strong> first so you can inspect and rename groups before anything changes in your browser.</p>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Can I connect my own custom AI API Key (BYOK)?</summary>
+                    <div class="faq-answer">
+                        <p><strong>Yes, absolutely!</strong> TabFlow has full native support for Bring Your Own Key (BYOK) with zero subscription fees and zero markup:</p>
+                        <ul>
+                            <li><strong>Anthropic Claude:</strong> (<code>sk-ant-</code>) defaults to <code>claude-haiku-5-5</code>.</li>
+                            <li><strong>OpenAI:</strong> (<code>sk-</code>) defaults to <code>gpt-4.1-mini</code> (or GPT-4o, o3-mini).</li>
+                            <li><strong>Google Gemini:</strong> (<code>AIza</code> or <code>AQ</code>) defaults to <code>gemini-3.6-flash</code>.</li>
+                            <li><strong>TypeSafe Jev:</strong> (<code>apikey_</code>) ultra-fast classifier for duplicate tab decisions.</li>
+                            <li><strong>Any OpenAI-Compatible API:</strong> Use custom base URLs and model names (e.g. Groq, Together, DeepSeek, or local proxies).</li>
+                        </ul>
+                        <p>You can also enable <em>Split Engines</em> in Settings to use one model for grouping and a separate fast model for duplicate classification.</p>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Where is my data stored, and who has access to it?</summary>
+                    <div class="faq-answer">
+                        <p><strong>All data is stored strictly on your local computer:</strong></p>
+                        <ul>
+                            <li><strong>IndexedDB (Dexie.js):</strong> Stores your 90-day archive of closed tabs and a 7-day activity log. Records older than 90 days are automatically purged.</li>
+                            <li><strong><code>chrome.storage.local</code>:</strong> Stores your extension settings, site rules, and API keys.</li>
+                            <li><strong><code>chrome.storage.session</code>:</strong> Stores undo history and short-lived decision caches, wiped automatically whenever the browser closes.</li>
+                        </ul>
+                        <p>There is zero telemetry, zero analytics, no central servers, and no user accounts. Nobody—including the developers—can see your browsing data.</p>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">How much disk and cache space will it use?</summary>
+                    <div class="faq-answer">
+                        <p>Very little:</p>
+                        <ul>
+                            <li><strong>On-device AI model:</strong> ~25 MB total. Downloaded once on first run from Hugging Face and cached locally in the browser's Cache Storage.</li>
+                            <li><strong>IndexedDB database:</strong> Typically under 1 MB to 2 MB even with hundreds of archived tabs.</li>
+                            <li><strong>Memory (RAM):</strong> The extension runs as a Manifest V3 background service worker that goes dormant when you are not actively navigating or executing commands.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Will it slow down web pages or my browsing?</summary>
+                    <div class="faq-answer">
+                        <p><strong>No.</strong> TabFlow is engineered for zero page overhead:</p>
+                        <ul>
+                            <li>It does not inject scripts or styles into ordinary web pages.</li>
+                            <li>The command palette is an isolated <code>&lt;iframe&gt;</code> that only loads into memory when you press the shortcut.</li>
+                            <li>Duplicate tab detection listens to <code>webNavigation.onBeforeNavigate</code> asynchronously for <em>newly opened tabs only</em>. Browsing inside an existing tab or clicking internal page links has zero delay.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">How does duplicate tab detection work without breaking normal browsing?</summary>
+                    <div class="faq-answer">
+                        <p>When you open a new tab, TabFlow checks whether the target address matches a tab already open in your browser. If it is an identical match, TabFlow switches you to the existing tab and shows an immediate on-screen notice with an <strong>Undo</strong> button (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>).</p>
+                        <p>Navigating between pages inside an active tab is never interrupted, and site rules let you specify domains that should never be closed.</p>
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">What happens when tabs are auto-archived? Are they lost?</summary>
+                    <div class="faq-answer">
+                        <p><strong>Never.</strong> TabFlow follows a strict safety rule: <em>never close anything you can't get back</em>.</p>
+                        <p>Auto-archiving is completely optional and disabled by default. When enabled, tabs you haven't opened in your selected number of days (e.g. 3 days) are saved to your local IndexedDB archive. They remain searchable in the command palette and restorable with one click for 90 days.</p>
+                    </div>
+                </details>
+            </div>
+        </section>
+
         <section id="shortcuts" class="shortcuts">
             <h2 class="section-title">Shortcuts &amp; commands</h2>
             <div class="table-wrap">
@@ -180,14 +273,16 @@
         <section class="closing">
             <h2>Give your tabs some flow.</h2>
             <div class="cta">
-                <a class="btn btn-primary" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
-                <a class="btn btn-ghost" href="https://github.com/snvishna/tabflow-agent">View the source</a>
+                <a class="btn btn-primary" id="closing-add-chrome" href="https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg">Add to Chrome</a>
+                <a class="btn btn-primary" id="closing-add-firefox" href="https://addons.mozilla.org/addon/tabflow-agent/">Add to Firefox</a>
+                <a class="btn btn-ghost" id="closing-github" href="https://github.com/snvishna/tabflow-agent">View the source</a>
             </div>
+            <p class="meta">Free · Open source (MIT) · Edge Add-ons listing coming soon</p>
         </section>
     </main>
 
     <footer>
-        <p>TabFlow Agent 1.1 · MIT License · <a href="https://github.com/snvishna/tabflow-agent">GitHub</a> · <a href="https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md">Privacy</a> · <a href="https://github.com/snvishna/tabflow-agent/issues">Report an issue</a></p>
+        <p>TabFlow Agent 1.1 · MIT License · <a href="https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg">Chrome Web Store</a> · <a href="https://addons.mozilla.org/addon/tabflow-agent/">Firefox Add-ons</a> · <a href="https://github.com/snvishna/tabflow-agent">GitHub</a> · <a href="https://github.com/snvishna/tabflow-agent/blob/main/PRIVACY_POLICY.md">Privacy</a> · <a href="https://github.com/snvishna/tabflow-agent/issues">Report an issue</a></p>
     </footer>
 </body>
 </html>

@@ -1,12 +1,19 @@
 # 🌌 TabFlow Agent
 
-[![Firefox Add-on](https://img.shields.io/badge/Firefox-Add--on-orange.svg)](https://addons.mozilla.org/addon/tabflow-agent/)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-4285F4.svg?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg)
+[![Firefox Add-on](https://img.shields.io/badge/Firefox-Add--on-orange.svg?logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/addon/tabflow-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Manifest: V3](https://img.shields.io/badge/Manifest-V3-success.svg)](extension/manifest.json)
 
 **TabFlow Agent keeps your browser tidy while you work, and never closes anything you can't get back.** It stops duplicate tabs, groups related tabs by topic, and finds any open, closed or archived tab from one keyboard shortcut. Everything runs on your device by default.
 
-🌐 **Website:** https://snvishna.github.io/tabflow-agent/ · 🦊 **Firefox:** [addons.mozilla.org/addon/tabflow-agent](https://addons.mozilla.org/addon/tabflow-agent/) · Chrome Web Store and Edge Add-ons listings coming soon (until then, [install from source](#-install-from-source))
+## 📥 Install
+
+- 🌐 **Chrome, Edge, Brave and other Chromium browsers:** [Chrome Web Store](https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg)
+- 🦊 **Firefox (142+):** [addons.mozilla.org/addon/tabflow-agent](https://addons.mozilla.org/addon/tabflow-agent/)
+- 🌍 **Website:** https://snvishna.github.io/tabflow-agent/
+
+A native Microsoft Edge Add-ons listing is coming soon; until then Edge users can install from the Chrome Web Store. Developers can also [install from source](#-install-from-source).
 
 ![The TabFlow command palette searching open, closed and archived tabs](store-assets/1-search-tabs.png)
 
@@ -17,8 +24,8 @@
 - **🧠 No duplicate tabs**: open a page that is already open and TabFlow switches to the existing tab, with an Undo notice. Only newly opened tabs are affected; browsing inside a tab is never interrupted, and different pages on the same site stay separate.
 - **🌱 Grouping with preview**: "Organize All Tabs" proposes named groups by topic; rename any of them, then apply. Nothing changes until you do. New tabs join a matching group automatically (can be turned off).
 - **↶ Undo anything**: closing duplicates, archiving, organizing and switching to an already-open tab can all be undone from the notice, the palette, or `Alt+Shift+U`.
-- **🔍 Command palette**: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on Mac), or the toolbar icon, searches open, recently closed and archived tabs. Type `>` for commands.
-- **📦 Archive, don't lose**: archive tabs unused for N days (you choose), by hand or automatically. Every tab TabFlow closes stays searchable and restorable for 90 days.
+- **🔍 Command palette**: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on Mac), or the toolbar icon, searches open, recently closed and archived tabs. Type a few words in any order; titles and URLs both match. Type `>` for commands.
+- **📦 Archive, don't lose**: archive tabs unused for N days (you choose; default 3), by hand or automatically with an hourly check (off by default). Every tab TabFlow closes stays searchable and restorable for 90 days.
 - **📏 Site rules**: sites TabFlow must never close, and sites that should only ever have one tab (e.g. `localhost`, your webmail).
 - **👋 Welcome page, tab-count badge, light & dark theme**, model download progress, activity log, and backup export/import.
 
@@ -78,7 +85,7 @@ Inside the palette, type `>` for commands:
 
 ## 🚀 Install from source
 
-Requires Node.js 22 and npm 10+.
+Most people should install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg) or [Firefox Add-ons](https://addons.mozilla.org/addon/tabflow-agent/). To build it yourself (requires Node.js 22 and npm 10+):
 
 ```bash
 git clone https://github.com/snvishna/tabflow-agent.git
@@ -105,7 +112,7 @@ npm run build          # bundles src/background.js into dist/ with esbuild
 - **Storage**: IndexedDB via `Dexie.js` for the 90-day archive and 7-day activity log; `storage.local` for settings; `storage.session` for undo history.
 - **Cross-browser**: one codebase; `scripts/pack.sh` produces the Chrome/Edge and Firefox packages from the same manifest.
 
-More detail in [docs/architecture.md](docs/architecture.md) and [docs/requirements.md](docs/requirements.md).
+More detail in [docs/architecture.md](docs/architecture.md), [docs/faq.md](docs/faq.md), and [docs/requirements.md](docs/requirements.md).
 
 ### Running tests
 ```bash

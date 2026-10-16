@@ -5,7 +5,7 @@ A launch plan for TabFlow Agent 1.1, aimed at developer-productivity, browser-en
 Links to use everywhere:
 - Website: https://snvishna.github.io/tabflow-agent/
 - Firefox: https://addons.mozilla.org/addon/tabflow-agent/
-- Chrome Web Store: *add once approved*
+- Chrome Web Store: https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg
 - Source: https://github.com/snvishna/tabflow-agent
 
 ---
@@ -51,7 +51,7 @@ Links to use everywhere:
 
 **5 (privacy + links):**
 > Grouping runs on a small AI model in your browser. No account, no tracking. Bring your own Claude/OpenAI/Gemini key if you want, and only that provider sees your tab titles.
-> 🦊 Firefox: [link] · 🌐 [website] · 🐙 [GitHub]
+> 🌐 Chrome: [link] · 🦊 Firefox: [link] · 🐙 [GitHub]
 
 ## 4. Hacker News (Show HN)
 
@@ -69,5 +69,5 @@ Links to use everywhere:
 
 ## 5. Reddit
 
-**Subreddits:** `r/firefox`, `r/browsers`, `r/productivity`, `r/SideProject`, `r/chrome_extensions` (once the Chrome listing is live).
+**Subreddits:** `r/chrome_extensions`, `r/firefox`, `r/browsers`, `r/productivity`, `r/SideProject`, `r/privacy` (lead with on-device).
 **Tone:** plain and specific; lead with "free, open source, on-device, undo for everything". Mention API keys only as an optional extra: Reddit is skeptical of AI wrappers, and TabFlow doesn't need one.
