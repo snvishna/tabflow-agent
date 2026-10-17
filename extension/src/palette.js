@@ -247,6 +247,7 @@ if (window.parent === window) {
 }
 // The toolbar popup closes as soon as a file picker opens, so file imports use a small window instead.
 const isToolbarPopup = window.parent === window && !new URLSearchParams(location.search).has('window');
+if (window.parent === window && !isToolbarPopup) document.documentElement.classList.add('in-window');
 
 /** Shows one of the palette screens: 'search', 'settings' or 'preview' (managed by preview.js). */
 function setView(view) {
@@ -410,7 +411,10 @@ input.addEventListener('input', (e) => {
                 const target = `${t.title || ''} ${t.url || ''}`.toLowerCase();
                 return terms.every(term => target.includes(term));
             });
-            renderList(filteredTabs);
+            // Commands match too, so "organize" works without knowing about ">"
+            const matchingCommands = commands.filter(c => terms.every(term => c.title.toLowerCase().includes(term)))
+                .map(c => ({ ...c, type: 'command' }));
+            renderList([...filteredTabs, ...matchingCommands]);
         }
     }
 });

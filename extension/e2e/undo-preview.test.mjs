@@ -66,6 +66,11 @@ if (kind === 'chrome') {
   await pal.keyboard.press('Escape');
   await sleep(300);
   check(R, 'Esc goes back to search', await pal.$eval('#preview-view', e => e.hidden));
+  await pal.$eval('#search-input', e => { e.value = ''; });
+  await pal.type('#search-input', 'organize');
+  await sleep(300);
+  const found = await pal.$$eval('.result-item', items => items.map(i => i.textContent));
+  check(R, 'plain search finds the Organize command', found.some(t => t.includes('Organize All Tabs')), JSON.stringify(found));
 }
 
 await browser.close();

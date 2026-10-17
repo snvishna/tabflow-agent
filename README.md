@@ -24,7 +24,7 @@ A native Microsoft Edge Add-ons listing is coming soon; until then Edge users ca
 - **🧠 No duplicate tabs**: open a page that is already open and TabFlow switches to the existing tab, with an Undo notice. Only newly opened tabs are affected; browsing inside a tab is never interrupted, and different pages on the same site stay separate.
 - **🌱 Grouping with preview**: "Organize All Tabs" proposes named groups by topic; rename any of them, then apply. Nothing changes until you do. New tabs join a matching group automatically (can be turned off).
 - **↶ Undo anything**: closing duplicates, archiving, organizing and switching to an already-open tab can all be undone from the notice, the palette, or `Alt+Shift+U`.
-- **🔍 Command palette**: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on Mac), or the toolbar icon, searches open, recently closed and archived tabs. Type a few words in any order; titles and URLs both match. Type `>` for commands.
+- **🔍 Command palette**: `Ctrl+Shift+Space` (`Cmd+Shift+Space` on Mac), or the toolbar icon, searches open, recently closed and archived tabs. Type a few words in any order; titles and URLs both match, and so do commands (try `organize`). Type `>` to list every command.
 - **📦 Archive, don't lose**: archive tabs unused for N days (you choose; default 3), by hand or automatically with an hourly check (off by default). Every tab TabFlow closes stays searchable and restorable for 90 days.
 - **📏 Site rules**: sites TabFlow must never close, and sites that should only ever have one tab (e.g. `localhost`, your webmail).
 - **👋 Welcome page, tab-count badge, light & dark theme**, model download progress, activity log, and backup export/import.
