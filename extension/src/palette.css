@@ -310,3 +310,33 @@ span.result-icon {
     transition: background 0.15s ease;
 }
 .link-pill:hover { background: var(--border); }
+
+/* Toolbar popup (or fallback window) on browser pages, where the overlay can't be injected */
+.standalone { color-scheme: light dark; }
+/* Only the list scrolls, never the page: two scrollbars side by side look broken */
+.standalone body {
+    padding: 0;
+    min-height: 0;
+    width: 640px;
+    overflow: hidden;
+    background: var(--surface-solid);
+}
+/* Toolbar popups are at most 600px tall */
+.standalone #results-list { max-height: 400px; }
+.standalone #palette-container {
+    width: auto;
+    background: var(--surface-solid);
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: none;
+}
+
+/* Fallback window: the palette fills the window and the list takes the leftover height */
+.in-window body { width: auto; height: 100vh; }
+.in-window #palette-container { height: 100%; }
+.in-window #results-list,
+.in-window #settings-view,
+.in-window #preview-view,
+.in-window #preview-body { flex: 1; min-height: 0; max-height: none; }
