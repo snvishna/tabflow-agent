@@ -73,6 +73,8 @@ The command palette (`Ctrl+Shift+Space` on Windows/Linux, `Cmd+Shift+Space` on M
 
 It uses **multi-term, order-agnostic matching**: typing `"invoice march"` instantly matches a tab titled `"March 2026 - Invoices & Billing"` or a URL containing `github.com/invoices/march`. It matches both page titles and web addresses, with instant keyboard navigation.
 
+On ordinary web pages the palette appears over the page. Browsers don't let extensions draw on their own pages (the new tab page, `about:` and `chrome://` pages such as `about:debugging`, and the extension stores), so there it opens as a regular toolbar popup under the TabFlow icon instead.
+
 ---
 
 ### 8. What happens when tabs are auto-archived? Are they lost forever?

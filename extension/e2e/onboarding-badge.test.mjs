@@ -39,6 +39,14 @@ await send({ action: 'save_settings', settings: { showTabCount: true } });
 const shortcuts = await api(async () => (await B.commands.getAll()).map(c => [c.name, c.shortcut]));
 check(R, 'shortcuts registered', shortcuts.some(([n]) => n === 'toggle-palette') && shortcuts.some(([n]) => n === 'undo-last-action'), JSON.stringify(shortcuts));
 
+// Browser pages can't host the overlay, so their tabs get the palette as the toolbar popup
+await open(browser, kind === 'firefox' ? 'about:robots' : 'chrome://version/');
+await sleep(800);
+const popups = await api(async () => Promise.all((await B.tabs.query({})).map(async t => [t.url, await B.action.getPopup({ tabId: t.id })])));
+const popupFor = prefix => (popups.find(([u]) => (u || '').startsWith(prefix)) || [])[1];
+check(R, 'browser pages open the palette as the toolbar popup', /palette\.html$/.test(popupFor(kind === 'firefox' ? 'about:robots' : 'chrome://version') || ''), JSON.stringify(popups));
+check(R, 'web pages keep the in-page palette', popupFor('https://example.com') === '', JSON.stringify(popups));
+
 if (kind === 'chrome') {
   for (const scheme of ['light', 'dark']) {
     const w = await browser.newPage();
