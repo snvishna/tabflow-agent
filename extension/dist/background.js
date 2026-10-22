@@ -29054,6 +29054,12 @@ function isWebUrl(urlString) {
     return false;
   }
 }
+function canShowOverlay(urlString) {
+  if (!isWebUrl(urlString)) return false;
+  const { hostname, pathname } = new URL(urlString);
+  if (hostname === "chrome.google.com" && pathname.startsWith("/webstore")) return false;
+  return !STORE_HOSTS.includes(hostname);
+}
 function normalizeUrl(urlString) {
   try {
     const parsed = new URL(urlString);
@@ -29148,9 +29154,10 @@ function withSettingDefaults(stored = {}) {
   s.singleInstance = toList(s.singleInstance);
   return s;
 }
-var SETTING_DEFAULTS;
+var STORE_HOSTS, SETTING_DEFAULTS;
 var init_utils = __esm({
   "src/utils.js"() {
+    STORE_HOSTS = ["chromewebstore.google.com", "microsoftedge.microsoft.com", "addons.mozilla.org"];
     SETTING_DEFAULTS = {
       archiveAfterDays: 3,
       autoArchive: false,
@@ -36384,66 +36391,71 @@ TARGET NEW URL: ${targetUrlStr}`;
         archiveStaleTabs({}).catch((e) => console.error("Auto-archive failed:", e));
       }
     });
-    function openPalette() {
-      browserAPI4.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
-        if (!tabs || tabs.length === 0) {
-          console.error("No active tab found to inject palette.");
-          browserAPI4.windows.create({
-            url: browserAPI4.runtime.getURL("palette.html"),
-            type: "popup",
-            width: 600,
-            height: 450
-          });
-          return;
-        }
-        if (tabs[0]) {
-          const url2 = tabs[0].url || "";
-          if (url2.startsWith("chrome://") || url2.startsWith("about:") || url2.startsWith("edge://") || url2.startsWith("file://")) {
-            const width = 600;
-            const height = 450;
-            browserAPI4.windows.getCurrent().then((win) => {
-              const left = win && win.width ? Math.round((win.width - width) / 2 + win.left) : 200;
-              const top = win && win.height ? Math.round((win.height - height) / 2 + win.top) : 200;
-              browserAPI4.windows.create({
-                url: browserAPI4.runtime.getURL("palette.html"),
-                type: "popup",
-                width,
-                height,
-                left,
-                top
-              });
-            }).catch((e) => {
-              browserAPI4.windows.create({
-                url: browserAPI4.runtime.getURL("palette.html"),
-                type: "popup",
-                width,
-                height
-              });
-            });
-            return;
-          }
-          try {
-            await browserAPI4.scripting.executeScript({
-              target: { tabId: tabs[0].id },
-              files: ["src/content.js"]
-            });
-          } catch (err) {
-            console.error("Failed to inject palette, likely restricted page:", err);
-            browserAPI4.windows.create({
-              url: browserAPI4.runtime.getURL("palette.html"),
-              type: "popup",
-              width: 600,
-              height: 450
-            });
-          }
-        }
-      }).catch((err) => {
-        console.error("Query active tab failed:", err);
+    var PALETTE_POPUP = "palette.html";
+    function syncPalettePopup(tabId, url2) {
+      if (!browserAPI4.action || tabId === void 0 || tabId < 0) return;
+      browserAPI4.action.setPopup({ tabId, popup: canShowOverlay(url2) ? "" : PALETTE_POPUP }).catch(() => {
       });
     }
-    browserAPI4.commands.onCommand.addListener((command) => {
+    browserAPI4.tabs.onCreated.addListener((tab) => syncPalettePopup(tab.id, tab.url || tab.pendingUrl));
+    browserAPI4.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (changeInfo.url || changeInfo.status === "complete") syncPalettePopup(tabId, tab.url);
+    });
+    browserAPI4.tabs.query({}).then((tabs) => tabs.forEach((t) => syncPalettePopup(t.id, t.url))).catch((e) => console.error("Palette popup sync failed:", e));
+    async function openPaletteWindow(query) {
+      const width = 660;
+      const height = 560;
+      let position = {};
+      try {
+        const win = await browserAPI4.windows.getLastFocused();
+        if (win && win.width) {
+          position = { left: Math.round(win.left + (win.width - width) / 2), top: Math.round(win.top + (win.height - height) / 3) };
+        }
+      } catch (e) {
+      }
+      const params = new URLSearchParams({ window: "1" });
+      if (query) params.set("q", query);
+      await browserAPI4.windows.create({ url: browserAPI4.runtime.getURL(`${PALETTE_POPUP}?${params}`), type: "popup", width, height, ...position });
+    }
+    function openPalettePopup(tab) {
+      const popupSet = browserAPI4.action.setPopup({ tabId: tab.id, popup: PALETTE_POPUP });
+      let opened;
+      try {
+        opened = browserAPI4.action.openPopup();
+      } catch (e) {
+        opened = Promise.reject(e);
+      }
+      Promise.all([popupSet, opened]).catch(async () => {
+        const closed = await browserAPI4.runtime.sendMessage({ action: "close_palette_popup" }).catch(() => false);
+        if (!closed) await openPaletteWindow();
+      }).catch((e) => console.error("Failed to open palette popup:", e));
+    }
+    async function injectPalette(tab) {
+      try {
+        await browserAPI4.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["src/content.js"]
+        });
+      } catch (err) {
+        console.error("Failed to inject palette, likely restricted page:", err);
+        syncPalettePopup(tab.id, "");
+        await openPaletteWindow();
+      }
+    }
+    function openPalette(tab) {
+      if (tab && tab.id !== void 0) {
+        if (canShowOverlay(tab.url)) injectPalette(tab);
+        else openPalettePopup(tab);
+        return;
+      }
+      browserAPI4.tabs.query({ active: true, lastFocusedWindow: true }).then(([active]) => {
+        if (active && canShowOverlay(active.url)) return injectPalette(active);
+        return openPaletteWindow();
+      }).catch((err) => console.error("Opening the palette failed:", err));
+    }
+    browserAPI4.commands.onCommand.addListener((command, tab) => {
       if (command === "toggle-palette") {
-        openPalette();
+        openPalette(tab);
       } else if (command === "undo-last-action") {
         undoAction().then((done) => {
           if (!done) announce("Nothing to undo.");
@@ -36451,9 +36463,7 @@ TARGET NEW URL: ${targetUrlStr}`;
       }
     });
     if (browserAPI4.action) {
-      browserAPI4.action.onClicked.addListener(() => {
-        openPalette();
-      });
+      browserAPI4.action.onClicked.addListener((tab) => openPalette(tab));
     }
     browserAPI4.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === "get_all_tabs") {
@@ -36940,6 +36950,10 @@ ${tabsJson}`);
       return true;
     }
     browserAPI4.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === "open_palette_window") {
+        openPaletteWindow(message.query).then(() => sendResponse(true), (e) => sendResponse({ error: e.message }));
+        return true;
+      }
       if (message.action === "export_backup") {
         Promise.all([
           browserAPI4.tabs.query({}),

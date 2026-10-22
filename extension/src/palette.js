@@ -236,6 +236,19 @@ function closeUI() {
     }
 }
 
+// Not inside a page overlay: the palette is the toolbar popup (or its own window) on a browser page.
+if (window.parent === window) {
+    document.documentElement.classList.add('standalone');
+    browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.action !== 'close_palette_popup') return;
+        sendResponse(true);
+        window.close();
+    });
+}
+// The toolbar popup closes as soon as a file picker opens, so file imports use a small window instead.
+const isToolbarPopup = window.parent === window && !new URLSearchParams(location.search).has('window');
+if (window.parent === window && !isToolbarPopup) document.documentElement.classList.add('in-window');
+
 /** Shows one of the palette screens: 'search', 'settings' or 'preview' (managed by preview.js). */
 function setView(view) {
     const isSearch = view === 'search';
@@ -300,6 +313,8 @@ function executeItem(item) {
         } else if (item.action === 'cmd_recover') {
             promise = browserAPI.runtime.sendMessage({ action: 'recover_last_archived' });
         } else if (item.action === 'cmd_export_backup') {
+            // A standalone palette must stay open until the download has started.
+            if (window.parent === window) shouldClose = false;
             promise = browserAPI.runtime.sendMessage({ action: 'export_backup' }).then(response => {
                 const blob = new Blob([JSON.stringify(response.backup, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
@@ -307,8 +322,13 @@ function executeItem(item) {
                 a.href = url;
                 a.download = `tab-manager-backup-${new Date().toISOString().split('T')[0]}.json`;
                 a.click();
-                URL.revokeObjectURL(url);
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    if (!shouldClose) window.close();
+                }, 500);
             });
+        } else if (item.action === 'cmd_import_backup' && isToolbarPopup) {
+            promise = browserAPI.runtime.sendMessage({ action: 'open_palette_window', query: '>import backup' });
         } else if (item.action === 'cmd_import_backup') {
             shouldClose = false;
             const fileInput = document.createElement('input');
@@ -391,7 +411,10 @@ input.addEventListener('input', (e) => {
                 const target = `${t.title || ''} ${t.url || ''}`.toLowerCase();
                 return terms.every(term => target.includes(term));
             });
-            renderList(filteredTabs);
+            // Commands match too, so "organize" works without knowing about ">"
+            const matchingCommands = commands.filter(c => terms.every(term => c.title.toLowerCase().includes(term)))
+                .map(c => ({ ...c, type: 'command' }));
+            renderList([...filteredTabs, ...matchingCommands]);
         }
     }
 });
@@ -647,4 +670,11 @@ document.getElementById('btn-save-settings').addEventListener('click', () => {
     });
 });
 
-loadTabs();
+loadTabs().then(() => {
+    // Opened with a query (e.g. the import window from the toolbar popup): run it as if typed.
+    const query = new URLSearchParams(location.search).get('q');
+    if (query) {
+        input.value = query;
+        input.dispatchEvent(new Event('input'));
+    }
+});

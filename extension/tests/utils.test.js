@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cosineSimilarity, extractDomain, fuzzyMatch } from '../src/utils.js';
+import { cosineSimilarity, extractDomain, fuzzyMatch, canShowOverlay } from '../src/utils.js';
 
 describe('cosineSimilarity', () => {
     it('should calculate identical vectors as 1.0', () => {
@@ -69,5 +69,28 @@ describe('fuzzyMatch', () => {
 
     it('should fail if any token is missing', () => {
         expect(fuzzyMatch('vec comp random', 'vector databases: a complete guide')).toBe(false);
+    });
+});
+
+describe('canShowOverlay', () => {
+    it('should allow ordinary web pages', () => {
+        expect(canShowOverlay('https://example.com/page')).toBe(true);
+        expect(canShowOverlay('http://localhost:3000/')).toBe(true);
+    });
+
+    it('should refuse browser pages', () => {
+        for (const url of ['about:debugging#/runtime/this-firefox', 'about:newtab', 'chrome://extensions/', 'edge://settings',
+            'brave://settings', 'view-source:https://example.com', 'chrome-extension://abc/page.html', 'moz-extension://abc/page.html',
+            'file:///home/me/notes.html', '', undefined]) {
+            expect(canShowOverlay(url)).toBe(false);
+        }
+    });
+
+    it('should refuse extension stores', () => {
+        expect(canShowOverlay('https://chromewebstore.google.com/detail/x')).toBe(false);
+        expect(canShowOverlay('https://chrome.google.com/webstore/detail/x')).toBe(false);
+        expect(canShowOverlay('https://addons.mozilla.org/addon/tabflow-agent/')).toBe(false);
+        expect(canShowOverlay('https://microsoftedge.microsoft.com/addons/detail/x')).toBe(false);
+        expect(canShowOverlay('https://chrome.google.com/search')).toBe(true);
     });
 });

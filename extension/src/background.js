@@ -1,7 +1,7 @@
 import { clusterTabs, getSmartGroupName, embedText, setModelProgressListener } from './clustering.js';
 import { archiveTab, getLatestArchivedTab, deleteArchivedTab, getArchivedTabs, bulkImportArchivedTabs } from './db.js';
 import { PROMPTS } from './prompts.js';
-import { isWebUrl, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, withSettingDefaults, urlMatchesDomains, cosineSimilarity } from './utils.js';
+import { isWebUrl, canShowOverlay, normalizeUrl, hostMatchesDomain, planExactDuplicates, planClusterClosures, selectStaleTabs, withSettingDefaults, urlMatchesDomains, cosineSimilarity } from './utils.js';
 import { pickGroupForTab } from './autogroup.js';
 import { defaultsForKey, isReflexOnlyKey, isReflexOnlyUrl } from './providers.js';
 import { recordUndo, peekUndo, takeUndo, describeClosedTab } from './undo.js';
@@ -561,72 +561,92 @@ browserAPI.alarms.onAlarm.addListener((alarm) => {
 });
 
 // --- Command Palette Listeners ---
-function openPalette() {
-    browserAPI.tabs.query({ active: true, currentWindow: true }).then(async tabs => {
-        if (!tabs || tabs.length === 0) {
-            console.error("No active tab found to inject palette.");
-            // Fallback for unexpected empty tabs list
-            browserAPI.windows.create({
-                url: browserAPI.runtime.getURL('palette.html'),
-                type: 'popup',
-                width: 600,
-                height: 450
-            });
-            return;
-        }
-        
-        if (tabs[0]) {
-            const url = tabs[0].url || "";
-            // Check if URL is restricted (new tab pages, extension pages, settings)
-            if (url.startsWith('chrome://') || url.startsWith('about:') || url.startsWith('edge://') || url.startsWith('file://')) {
-                const width = 600;
-                const height = 450;
-                browserAPI.windows.getCurrent().then(win => {
-                    const left = win && win.width ? Math.round((win.width - width) / 2 + win.left) : 200;
-                    const top = win && win.height ? Math.round((win.height - height) / 2 + win.top) : 200;
-                    browserAPI.windows.create({
-                        url: browserAPI.runtime.getURL('palette.html'),
-                        type: 'popup',
-                        width: width,
-                        height: height,
-                        left: left,
-                        top: top
-                    });
-                }).catch(e => {
-                    browserAPI.windows.create({
-                        url: browserAPI.runtime.getURL('palette.html'),
-                        type: 'popup',
-                        width: width,
-                        height: height
-                    });
-                });
-                return;
-            }
+// On web pages the palette is an overlay injected into the page. Browser pages (about:,
+// chrome://, the new tab page, extension stores) don't allow that, so those tabs get the
+// palette as their toolbar popup: clicking the icon opens it natively, anchored to the toolbar.
+const PALETTE_POPUP = 'palette.html';
 
-            try {
-                await browserAPI.scripting.executeScript({
-                    target: { tabId: tabs[0].id },
-                    files: ['src/content.js']
-                });
-            } catch (err) {
-                console.error("Failed to inject palette, likely restricted page:", err);
-                // Fallback for unexpected restricted pages
-                browserAPI.windows.create({
-                    url: browserAPI.runtime.getURL('palette.html'),
-                    type: 'popup',
-                    width: 600,
-                    height: 450
-                });
-            }
-        }
-    }).catch(err => {
-        console.error("Query active tab failed:", err);
-    });
+function syncPalettePopup(tabId, url) {
+    if (!browserAPI.action || tabId === undefined || tabId < 0) return;
+    browserAPI.action.setPopup({ tabId, popup: canShowOverlay(url) ? '' : PALETTE_POPUP })
+        .catch(() => { /* tab already closed */ });
 }
 
-browserAPI.commands.onCommand.addListener((command) => {
+browserAPI.tabs.onCreated.addListener(tab => syncPalettePopup(tab.id, tab.url || tab.pendingUrl));
+browserAPI.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === 'complete') syncPalettePopup(tabId, tab.url);
+});
+browserAPI.tabs.query({}).then(tabs => tabs.forEach(t => syncPalettePopup(t.id, t.url)))
+    .catch(e => console.error("Palette popup sync failed:", e));
+
+/**
+ * The palette in a small window of its own: the last resort when the toolbar popup can't
+ * open, and for importing a backup (a file picker closes the toolbar popup).
+ * @param {string} [query] text to start the palette with, e.g. '>import backup'
+ */
+async function openPaletteWindow(query) {
+    const width = 660;
+    const height = 560;
+    let position = {};
+    try {
+        const win = await browserAPI.windows.getLastFocused();
+        if (win && win.width) {
+            position = { left: Math.round(win.left + (win.width - width) / 2), top: Math.round(win.top + (win.height - height) / 3) };
+        }
+    } catch (e) { /* no window to centre on */ }
+    const params = new URLSearchParams({ window: '1' });
+    if (query) params.set('q', query);
+    await browserAPI.windows.create({ url: browserAPI.runtime.getURL(`${PALETTE_POPUP}?${params}`), type: 'popup', width, height, ...position });
+}
+
+/**
+ * Opens the palette as the toolbar popup. Must be called synchronously from the click or
+ * shortcut handler: Firefox only lets openPopup() run while handling the user's input.
+ */
+function openPalettePopup(tab) {
+    const popupSet = browserAPI.action.setPopup({ tabId: tab.id, popup: PALETTE_POPUP });
+    let opened;
+    try {
+        opened = browserAPI.action.openPopup();
+    } catch (e) {
+        opened = Promise.reject(e);
+    }
+    Promise.all([popupSet, opened]).catch(async () => {
+        // Pressing the shortcut again while the palette is open closes it, like the overlay.
+        const closed = await browserAPI.runtime.sendMessage({ action: 'close_palette_popup' }).catch(() => false);
+        if (!closed) await openPaletteWindow();
+    }).catch(e => console.error("Failed to open palette popup:", e));
+}
+
+async function injectPalette(tab) {
+    try {
+        await browserAPI.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['src/content.js']
+        });
+    } catch (err) {
+        // A page that blocks scripts but isn't caught by canShowOverlay(): remember it for next time.
+        console.error("Failed to inject palette, likely restricted page:", err);
+        syncPalettePopup(tab.id, '');
+        await openPaletteWindow();
+    }
+}
+
+function openPalette(tab) {
+    if (tab && tab.id !== undefined) {
+        if (canShowOverlay(tab.url)) injectPalette(tab);
+        else openPalettePopup(tab);
+        return;
+    }
+    browserAPI.tabs.query({ active: true, lastFocusedWindow: true }).then(([active]) => {
+        if (active && canShowOverlay(active.url)) return injectPalette(active);
+        return openPaletteWindow();
+    }).catch(err => console.error("Opening the palette failed:", err));
+}
+
+browserAPI.commands.onCommand.addListener((command, tab) => {
     if (command === "toggle-palette") {
-        openPalette();
+        openPalette(tab);
     } else if (command === "undo-last-action") {
         undoAction().then(done => {
             if (!done) announce('Nothing to undo.');
@@ -635,9 +655,8 @@ browserAPI.commands.onCommand.addListener((command) => {
 });
 
 if (browserAPI.action) {
-    browserAPI.action.onClicked.addListener(() => {
-        openPalette();
-    });
+    // Only fires on tabs without the popup set, i.e. web pages where the overlay can run.
+    browserAPI.action.onClicked.addListener(tab => openPalette(tab));
 }
 
 // --- API Message Listeners ---
@@ -1177,6 +1196,11 @@ async function undoAction(id) {
 
 // --- Backup Listeners ---
 browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'open_palette_window') {
+        openPaletteWindow(message.query).then(() => sendResponse(true), e => sendResponse({ error: e.message }));
+        return true;
+    }
+
     if (message.action === 'export_backup') {
         Promise.all([
             browserAPI.tabs.query({}),

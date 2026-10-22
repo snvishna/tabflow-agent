@@ -58,6 +58,21 @@ export function isWebUrl(urlString) {
     }
 }
 
+// Extension stores block content scripts even though they are ordinary https pages.
+const STORE_HOSTS = ['chromewebstore.google.com', 'microsoftedge.microsoft.com', 'addons.mozilla.org'];
+
+/**
+ * True when the palette can be shown as an overlay inside the page. Browser pages
+ * (about:, chrome://, edge://, view-source:, other extensions, the new tab page) and
+ * extension stores don't allow it, so the palette opens as the toolbar popup there.
+ */
+export function canShowOverlay(urlString) {
+    if (!isWebUrl(urlString)) return false;
+    const { hostname, pathname } = new URL(urlString);
+    if (hostname === 'chrome.google.com' && pathname.startsWith('/webstore')) return false;
+    return !STORE_HOSTS.includes(hostname);
+}
+
 /**
  * Normalizes a URL for exact-duplicate comparison: drops the hash and a trailing slash.
  */
