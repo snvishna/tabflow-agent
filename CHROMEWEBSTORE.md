@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — TabFlow Agent
 
-> Last Updated: 2026-10-12 · Current version: **1.1.0**
+> Last Updated: 2026-10-22 · Current version: **1.1.1**
 > Upload `tabflow-chrome.zip` (built by `scripts/pack.sh`). Run `npm run test:e2e` in `extension/` first.
 
 ## Store Listing
@@ -21,7 +21,7 @@ TABS THAT ORGANIZE THEMSELVES
 "Organize All Tabs" proposes tab groups by topic (Travel, Development, News…). You see the groups first, can rename any of them, and nothing changes until you apply. New tabs you open later join a matching group automatically.
 
 ONE SHORTCUT TO FIND ANY TAB
-Press Ctrl+Shift+Space (Cmd+Shift+Space on Mac), or click the toolbar icon, to search every open tab, recently closed tab and archived tab. Type > for commands.
+Press Ctrl+Shift+Space (Cmd+Shift+Space on Mac), or click the toolbar icon, to search every open tab, recently closed tab and archived tab. Commands show up as you type (try "organize"), or type > to list them all.
 
 UNDO ANYTHING
 Every change TabFlow makes can be undone: from the notice, from the top of the palette, or with Alt+Shift+U.
@@ -51,8 +51,9 @@ English
 > No account, login or API key is needed; every feature works with the free on-device AI.
 > 1. After installing, a welcome page opens. Click "Preview groups" to see proposed tab groups for the current window, then "Apply groups". Click "Undo" to restore.
 > 2. Open https://example.com in a tab. Open a new tab (Ctrl+T) and go to https://example.com again: TabFlow switches to the first tab and shows "Already open — switched to your open tab" with an Undo button.
-> 3. Press Ctrl+Shift+Space (or click the toolbar icon) on any web page to open the palette and search your tabs. Type > to see commands such as "Close Duplicate Tabs" and "Organize All Tabs".
-> 4. The first grouping downloads a small AI model (about 25 MB) once; progress is shown in the preview.
+> 3. Press Ctrl+Shift+Space (or click the toolbar icon) on any web page to open the palette and search your tabs. Type "organize" to find "Organize All Tabs", or > to list every command.
+> 4. On a browser page such as chrome://extensions or the new tab page, the same shortcut or icon opens the palette as the toolbar popup (browsers don't allow extensions to draw on their own pages).
+> 5. The first grouping downloads a small AI model (about 25 MB) once; progress is shown in the preview.
 
 ## Graphics & Assets
 
@@ -143,7 +144,8 @@ https://github.com/snvishna/tabflow-agent
 |---------|------|---------|--------|
 | 1.0.0 | 2026-10-04 | Initial release featuring Reflex deduplication and Cognitive grouping. | Rejected (Yellow Magnesium) |
 | 1.0.1 | 2026-10-12 | Fixes install failure on Windows/Linux (invalid keyboard shortcut), stops blank/new-tab pages being closed as duplicates, bundles the local AI runtime instead of loading it from a CDN, drops the unused `alarms` permission, and trims the package to runtime files only. | Superseded by 1.1.0 (not submitted) |
-| 1.1.0 | 2026-10-12 | Everything in 1.0.1, plus: duplicate handling only for new tabs, never closes different pages on the same site, archives everything it closes; Undo for every action (notice, palette, Alt+Shift+U); preview before organizing, closing duplicates or archiving; auto-group new tabs; per-site rules; configurable archive days with optional auto-archive (`alarms` is back and used); welcome page; tab-count badge; light/dark theme; model download progress. | Ready to submit |
+| 1.1.0 | 2026-10-12 | Everything in 1.0.1, plus: duplicate handling only for new tabs, never closes different pages on the same site, archives everything it closes; Undo for every action (notice, palette, Alt+Shift+U); preview before organizing, closing duplicates or archiving; auto-group new tabs; per-site rules; configurable archive days with optional auto-archive (`alarms` is back and used); welcome page; tab-count badge; light/dark theme; model download progress. | Live |
+| 1.1.1 | 2026-10-22 | On browser pages (new tab page, chrome://, about:, extension stores) the palette now opens as the toolbar popup instead of a separate, oddly placed window; the standalone palette has a single scrollbar; plain search also finds commands (type "organize"); the welcome page explains how to organize later; Export Backup works from the standalone palette. No permission changes. | Ready to submit |
 
 ## Review Notes
 
