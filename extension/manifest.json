@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabFlow Agent",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Groups related tabs, prevents duplicate tabs, and lets you search open and archived tabs from a command palette.",
   "permissions": [
     "tabs",

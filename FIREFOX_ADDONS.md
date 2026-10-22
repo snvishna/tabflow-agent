@@ -1,22 +1,32 @@
 # Firefox Add-ons (AMO) Publishing Guide
 
-## Updating the live listing to 1.1.0
+## Updating the live listing to 1.1.1
 
-TabFlow Agent 1.0.0 is live on AMO (https://addons.mozilla.org/addon/tabflow-agent/). To ship 1.1.0:
+TabFlow Agent 1.1.0 is live on AMO (https://addons.mozilla.org/addon/tabflow-agent/). To ship 1.1.1:
 
 1. `bash scripts/pack.sh` from the repo root (and `npm run test:e2e` in `extension/` with `FF_BIN` set).
 2. AMO Developer Hub → TabFlow Agent → **Upload New Version** → upload `tabflow-firefox.zip`.
 3. When asked whether the add-on uses a build step, answer **Yes** and upload `tabflow-source.zip`.
 4. Paste the release notes and reviewer notes below.
 
-**Listing (Edit Product Page → Describe Add-on)**: update to match 1.1.0. AMO renders a subset of Markdown/HTML.
+**Release notes (1.1.1)**
+> - On browser pages (new tab, about:debugging and other about: pages, addons.mozilla.org) the palette now opens as the toolbar popup instead of a separate window in the corner of the screen. The shortcut opens and closes it there too.
+> - The palette no longer shows two scrollbars when it opens outside a web page.
+> - Commands now appear in normal search: type "organize" to group your tabs, no ">" needed. The welcome page explains how to organize later.
+> - Export Backup works from the toolbar popup; Import Backup opens a small window for the file picker.
+
+**Notes to reviewer (1.1.1)**
+> Same build as 1.1.0 (see below); no new permissions. The change uses `action.setPopup` per tab and `action.openPopup()` from the keyboard command so the palette can open on pages where content scripts are not allowed.
+> Test: open about:debugging, press Ctrl+Shift+Space or click the toolbar icon; the palette opens as the toolbar popup. On https://example.com it opens over the page as before.
+
+**Listing (Edit Product Page → Describe Add-on)**: keep in sync with `CHROMEWEBSTORE.md`. AMO renders a subset of Markdown/HTML.
 - Summary (max 250 characters):
   > Stops duplicate tabs, groups related tabs by topic, and finds any open, closed or archived tab from one shortcut. Runs on a private on-device AI model, with optional Claude, OpenAI or Gemini keys. Undo for everything.
 - Description: the "Detailed Description" from `CHROMEWEBSTORE.md`.
 - Categories: Tabs, Search Tools. Homepage: https://snvishna.github.io/tabflow-agent/. Support: https://github.com/snvishna/tabflow-agent/issues
 - Screenshots: `store-assets/1-5*.png` with the captions in `CHROMEWEBSTORE.md`.
 
-**Release notes (1.1.0)**
+**Release notes (1.1.0, for reference)**
 > - Undo for everything: closing duplicates, archiving, organizing and switching to an already-open tab can all be undone (notice, palette, or Alt+Shift+U).
 > - Preview before applying: see proposed groups (and rename them) or the tabs that would be closed before anything changes.
 > - Duplicate handling now only applies to newly opened tabs and never closes different pages on the same site; closed duplicates are archived.
@@ -26,7 +36,7 @@ TabFlow Agent 1.0.0 is live on AMO (https://addons.mozilla.org/addon/tabflow-age
 > - Welcome page, tab count on the toolbar icon, light and dark theme, download progress for the on-device AI model.
 > - The on-device AI runtime is now bundled instead of loaded from a CDN.
 
-**Notes to reviewer (1.1.0)**
+**Notes to reviewer (1.1.0, build instructions still current)**
 > Build from the source ZIP with Node.js 22 and npm 10+: `cd extension && npm ci && node build.mjs`.
 > This bundles `src/background.js` (and its imports: Dexie, @xenova/transformers) into `dist/background.js` with esbuild, and copies the ONNX Runtime WebAssembly files `ort-wasm.wasm` and `ort-wasm-simd.wasm` from `node_modules/@xenova/transformers/dist/` into `dist/`. All other files (`src/*.js`, `*.html`, `src/*.css`) are shipped unmodified.
 > `build.mjs` replaces two `eval`/`new Function` patterns in the bundled dependencies with safe equivalents, because they are not allowed in MV3.

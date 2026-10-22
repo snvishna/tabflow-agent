@@ -6,8 +6,8 @@ TabFlow Agent uses only browser APIs and IndexedDB (no native binaries), so user
 
 | Store | Package | Status | Guide |
 |---|---|---|---|
-| Firefox Add-ons (AMO) | `tabflow-firefox.zip` + `tabflow-source.zip` | Live (1.1.0): [listing](https://addons.mozilla.org/addon/tabflow-agent/) | [FIREFOX_ADDONS.md](../FIREFOX_ADDONS.md) |
-| Chrome Web Store | `tabflow-chrome.zip` | Live (1.1.0): [listing](https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg) | [CHROMEWEBSTORE.md](../CHROMEWEBSTORE.md) |
+| Firefox Add-ons (AMO) | `tabflow-firefox.zip` + `tabflow-source.zip` | Live (1.1.0; 1.1.1 ready to upload): [listing](https://addons.mozilla.org/addon/tabflow-agent/) | [FIREFOX_ADDONS.md](../FIREFOX_ADDONS.md) |
+| Chrome Web Store | `tabflow-chrome.zip` | Live (1.1.0; 1.1.1 ready to upload): [listing](https://chromewebstore.google.com/detail/tabflow-agent/mcejjnakabmfflpbjbffajjbooclihbg) | [CHROMEWEBSTORE.md](../CHROMEWEBSTORE.md) |
 | Microsoft Edge Add-ons | `tabflow-chrome.zip` | Not yet submitted (Edge users can install from the Chrome Web Store) | [MICROSOFT_EDGE.md](../MICROSOFT_EDGE.md) |
 
 ## Release checklist
